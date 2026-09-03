@@ -123,6 +123,12 @@ if st.sidebar.button("🚪 Logout", type="secondary"):
     st.session_state.role = None
     st.rerun()
 
+# Sidebar View Control
+st.sidebar.header("🗺️ Navigation")
+page_view = st.sidebar.radio("Console View", ["🖥️ Live Monitoring", "📊 Telemetry Logs & Analytics"])
+
+st.sidebar.divider()
+
 # Sidebar Theme Control
 st.sidebar.header("🎨 Appearance")
 theme_mode = st.sidebar.radio("Dashboard Theme", ["🌙 Dark Mode", "☀️ Light Mode"], index=0)
@@ -229,53 +235,69 @@ if should_update:
     if len(st.session_state.history) > 30:
         st.session_state.history.pop(0)
 
-# Display Dashboard UI
 df = pd.DataFrame(st.session_state.history)
 
-if not df.empty:
-    latest = df.iloc[-1]
-    status = latest["Status"]
-    tilt_val, vib_val, strain_val = latest["Tilt"], latest["Vibration"], latest["Strain"]
-else:
-    status = "NO DATA"
-    tilt_val, vib_val, strain_val = 0.0, 0.0, 0.0
+if page_view == "🖥️ Live Monitoring":
+    st.title("🚨 Real-Time Mine Hazard Monitoring Console")
+    st.markdown("Early warning telemetry system for mine subsidence and structural hazard detection.")
 
-# Live Risk Alert Banner
-if status == "SAFE":
-    st.success("### STATUS: SAFE — Normal Operation (Node: NODE_01)")
-elif status == "WARNING":
-    st.warning("### STATUS: WARNING — Structural Drift Threshold Approached (Node: NODE_01)")
-elif status == "DANGER":
-    st.error("### STATUS: DANGER — Immediate Collapse Risk Detected! (Node: NODE_01)")
-else:
-    st.info(f"### STATUS: {status}")
+    if not df.empty:
+        latest = df.iloc[-1]
+        status = latest["Status"]
+        tilt_val, vib_val, strain_val = latest["Tilt"], latest["Vibration"], latest["Strain"]
+    else:
+        status = "NO DATA"
+        tilt_val, vib_val, strain_val = 0.0, 0.0, 0.0
 
-# Metrics Cards
-c1, c2, c3, c4 = st.columns(4)
-c1.metric(label="Filtered Tilt", value=f"{tilt_val:.4f}", delta="Deg/m")
-c2.metric(label="Filtered Vibration", value=f"{vib_val:.4f}", delta="g")
-c3.metric(label="Filtered Strain", value=f"{strain_val:.4f}", delta="mm/m")
+    # Live Risk Alert Banner
+    if status == "SAFE":
+        st.success("### STATUS: SAFE — Normal Operation (Node: NODE_01)")
+    elif status == "WARNING":
+        st.warning("### STATUS: WARNING — Structural Drift Threshold Approached (Node: NODE_01)")
+    elif status == "DANGER":
+        st.error("### STATUS: DANGER — Immediate Collapse Risk Detected! (Node: NODE_01)")
+    else:
+        st.info(f"### STATUS: {status}")
 
-if not df.empty:
-    warn_ct = len(df[df["Status"] == "WARNING"])
-    dang_ct = len(df[df["Status"] == "DANGER"])
-    c4.metric(label="Alert Summary (Buffer)", value=f"{len(df)} total", delta=f"{warn_ct} Warn / {dang_ct} Danger")
-else:
-    c4.metric(label="Alert Summary", value="0 total")
+    # Metrics Cards
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric(label="Filtered Tilt", value=f"{tilt_val:.4f}", delta="Deg/m")
+    c2.metric(label="Filtered Vibration", value=f"{vib_val:.4f}", delta="g")
+    c3.metric(label="Filtered Strain", value=f"{strain_val:.4f}", delta="mm/m")
 
-st.divider()
+    if not df.empty:
+        warn_ct = len(df[df["Status"] == "WARNING"])
+        dang_ct = len(df[df["Status"] == "DANGER"])
+        c4.metric(label="Alert Summary", value=f"{len(df)} total", delta=f"{warn_ct} Warn / {dang_ct} Danger")
+    else:
+        c4.metric(label="Alert Summary", value="0 total")
 
-# Telemetry History Chart and Table
-if not df.empty:
-    col_chart, col_table = st.columns([2, 1])
+    st.divider()
 
-    with col_chart:
-        st.subheader("📈 Live Sensor Trends")
+    if not df.empty:
+        st.subheader("📈 Real-Time Sensor Telemetry Trends")
         st.line_chart(df.set_index("Time")[["Tilt", "Vibration", "Strain"]])
 
-    with col_table:
-        st.subheader("📋 Telemetry Log")
+else:
+    st.title("📊 Telemetry Buffer Logs & Risk Level Distribution")
+    st.markdown("Dedicated screen for historical telemetry audit logs and risk level distribution analysis.")
+
+    if not df.empty:
+        safe_ct = len(df[df["Status"] == "SAFE"])
+        warn_ct = len(df[df["Status"] == "WARNING"])
+        dang_ct = len(df[df["Status"] == "DANGER"])
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Safe Operations", safe_ct)
+        m2.metric("Warnings Triggered", warn_ct)
+        m3.metric("Danger Alerts", dang_ct)
+        m4.metric("Total Records Logged", len(df))
+
+        st.divider()
+        st.subheader("📋 Telemetry Buffer Log Table")
         st.dataframe(df.iloc[::-1], use_container_width=True)
+    else:
+        st.info("No telemetry logs buffered yet. Enable live stream or send a manual reading to view logs.")
 
 if auto_stream:
     time.sleep(refresh_rate)
