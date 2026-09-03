@@ -1,0 +1,2 @@
+# MINING
+about mining project
