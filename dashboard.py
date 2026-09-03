@@ -123,10 +123,23 @@ if st.sidebar.button("🚪 Logout", type="secondary"):
     st.session_state.role = None
     st.rerun()
 
-st.sidebar.divider()
+# Sidebar Theme Control
+st.sidebar.header("🎨 Appearance")
+theme_mode = st.sidebar.radio("Dashboard Theme", ["🌙 Dark Mode", "☀️ Light Mode"], index=0)
 
-st.title("🚨 Real-Time Mine Hazard Monitoring Dashboard")
-st.markdown("Early warning telemetry system for mine subsidence and structural hazard detection.")
+if theme_mode == "☀️ Light Mode":
+    st.markdown("""
+        <style>
+        .stApp { background-color: #f1f5f9; color: #0f172a; }
+        [data-testid="stSidebar"] { background-color: #ffffff; border-right: 1px solid #cbd5e1; }
+        [data-testid="stHeader"] { background-color: rgba(255, 255, 255, 0.8); }
+        .stMetric { background-color: #ffffff; border: 1px solid #cbd5e1; border-radius: 10px; padding: 1rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        div[data-testid="stMetricValue"] { color: #0f172a !important; }
+        h1, h2, h3, p, label { color: #0f172a !important; }
+        </style>
+    """, unsafe_allow_html=True)
+
+st.sidebar.divider()
 
 # Sidebar Controls
 st.sidebar.header("🕹️ Controls & Simulation")
