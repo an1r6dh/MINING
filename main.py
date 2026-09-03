@@ -527,6 +527,26 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 
     <script>
         // Theme Switcher Logic
+        function applyChartTheme(isLight) {
+            const textColor = isLight ? "#475569" : "#94a3b8";
+            const gridColor = isLight ? "rgba(0, 0, 0, 0.08)" : "rgba(255, 255, 255, 0.05)";
+            const legendColor = isLight ? "#0f172a" : "#f8fafc";
+
+            if (window.trendChart) {
+                trendChart.options.scales.x.ticks.color = textColor;
+                trendChart.options.scales.x.grid.color = gridColor;
+                trendChart.options.scales.y.ticks.color = textColor;
+                trendChart.options.scales.y.grid.color = gridColor;
+                trendChart.options.plugins.legend.labels.color = legendColor;
+                trendChart.update();
+            }
+
+            if (window.riskDoughnut) {
+                riskDoughnut.options.plugins.legend.labels.color = legendColor;
+                riskDoughnut.update();
+            }
+        }
+
         function initTheme() {
             const savedTheme = localStorage.getItem("mine_theme");
             if (savedTheme === "light") {
@@ -543,20 +563,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             document.getElementById("theme-icon").textContent = isLight ? "🌙" : "☀️";
             document.getElementById("theme-text").textContent = isLight ? "Dark Mode" : "Light Mode";
 
-            // Update Chart.js themes dynamically
-            const textColor = isLight ? "#64748b" : "#94a3b8";
-            const gridColor = isLight ? "rgba(0, 0, 0, 0.06)" : "rgba(255, 255, 255, 0.05)";
-            const legendColor = isLight ? "#0f172a" : "#f8fafc";
-
-            trendChart.options.scales.x.ticks.color = textColor;
-            trendChart.options.scales.x.grid.color = gridColor;
-            trendChart.options.scales.y.ticks.color = textColor;
-            trendChart.options.scales.y.grid.color = gridColor;
-            trendChart.options.plugins.legend.labels.color = legendColor;
-            trendChart.update();
-
-            riskDoughnut.options.plugins.legend.labels.color = legendColor;
-            riskDoughnut.update();
+            applyChartTheme(isLight);
         }
 
         // Authentication System
@@ -854,6 +861,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
         }
 
         initTheme();
+        applyChartTheme(document.body.classList.contains("light-theme"));
         checkAuth();
         setInterval(updateTelemetry, 2000);
     </script>
