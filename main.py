@@ -566,14 +566,14 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             applyChartTheme(isLight);
         }
 
-        // Authentication System
+        // Authentication System — Always require Sign In on fresh page load
         const DEFAULT_USERS = { "Admin": { password: "godisgreat", role: "Administrator" } };
         function getUsers() {
             const saved = localStorage.getItem("mine_users");
             return saved ? JSON.parse(saved) : DEFAULT_USERS;
         }
 
-        let currentUser = localStorage.getItem("mine_current_user");
+        let currentUser = null;
         let activeSimMode = "dynamic";
 
         function checkAuth() {
@@ -617,7 +617,6 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 
             if (users[u] && users[u].password === p) {
                 currentUser = u;
-                localStorage.setItem("mine_current_user", u);
                 showAuthMsg("Login successful! Redirecting to console...", false);
                 setTimeout(checkAuth, 500);
             } else {
