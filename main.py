@@ -924,6 +924,162 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             checkAuth();
         }
 
+        // Admin Panel Rendering & Cloud Sync Actions
+        async function deleteUserFromSupabase(username) {
+            if (!supabaseClient || username === "Admin") return;
+            try {
+                await supabaseClient.from('users').delete().eq('username', username);
+            } catch(err) {}
+        }
+
+        async function renderAdminPanel() {
+            let users = getUsers();
+            let sessions = getSessions();
+
+            // Fetch live cloud records directly from Supabase Database
+            if (supabaseClient) {
+                try {
+                    const { data: suUsers } = await supabaseClient.from('users').select('*');
+                    if (suUsers && suUsers.length > 0) {
+                        suUsers.forEach(u => {
+                            users[u.username] = {
+                                password: users[u.username]?.password || "••••••••",
+                                role: u.role,
+                                status: u.status,
+                                registeredAt: u.registered_at
+                            };
+                        });
+                        saveUsers(users);
+                    }
+
+                    const { data: suSess } = await supabaseClient.from('active_sessions').select('*').order('id', { ascending: false }).limit(25);
+                    if (suSess && suSess.length > 0) {
+                        sessions = suSess.map(s => ({
+                            username: s.username,
+                            role: s.role,
+                            ip: s.ip_address,
+                            browser: s.browser,
+                            loginTime: s.login_time,
+                            status: s.status || "Active"
+                        }));
+                        localStorage.setItem("mine_active_sessions", JSON.stringify(sessions));
+                    }
+                } catch(e) {
+                    console.warn("Supabase fetch notice:", e);
+                }
+            }
+
+            let pendingList = [];
+            let approvedList = [];
+
+            Object.keys(users).forEach(uname => {
+                const item = users[uname];
+                if (item.status === "Pending" && uname !== "Admin") {
+                    pendingList.push({ username: uname, ...item });
+                } else {
+                    approvedList.push({ username: uname, ...item });
+                }
+            });
+
+            document.getElementById("adm-cnt-pending").textContent = pendingList.length;
+            document.getElementById("adm-cnt-approved").textContent = approvedList.length;
+            document.getElementById("adm-cnt-sessions").textContent = sessions.length;
+
+            // Render Pending Table
+            const pendingTbody = document.getElementById("adm-pending-tbody");
+            if (pendingList.length === 0) {
+                pendingTbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">No pending user authorization requests found.</td></tr>`;
+            } else {
+                pendingTbody.innerHTML = pendingList.map(u => `
+                    <tr>
+                        <td><strong>${u.username}</strong></td>
+                        <td><span class="user-badge">${u.role}</span></td>
+                        <td>${u.registeredAt || 'Just now'}</td>
+                        <td>
+                            <button onclick="approveUser('${u.username}')" style="background: #10b981; color: #fff; border: none; padding: 0.35rem 0.75rem; border-radius: 6px; font-weight: 700; cursor: pointer; margin-right: 0.4rem;">✅ Authorize</button>
+                            <button onclick="rejectUser('${u.username}')" style="background: #ef4444; color: #fff; border: none; padding: 0.35rem 0.75rem; border-radius: 6px; font-weight: 700; cursor: pointer;">❌ Reject</button>
+                        </td>
+                    </tr>
+                `).join('');
+            }
+
+            // Render Registered Users Table
+            const usersTbody = document.getElementById("adm-users-tbody");
+            if (Object.keys(users).length === 0) {
+                usersTbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">No registered user accounts found.</td></tr>`;
+            } else {
+                usersTbody.innerHTML = Object.keys(users).map(uname => {
+                    const u = users[uname];
+                    const isApproved = (u.status === "Approved" || uname === "Admin");
+                    return `
+                        <tr>
+                            <td><strong>${uname}</strong></td>
+                            <td><span class="user-badge">${u.role || 'Operator'}</span></td>
+                            <td><span class="badge ${isApproved ? 'SAFE' : 'WARNING'}">${isApproved ? 'APPROVED' : 'PENDING'}</span></td>
+                            <td>${u.registeredAt || 'Pre-configured'}</td>
+                            <td>
+                                ${uname === 'Admin' ? '<span style="color: var(--text-muted);">Master Admin</span>' : `
+                                    <button onclick="toggleUserStatus('${uname}')" style="background: var(--primary-accent); color: #fff; border: none; padding: 0.3rem 0.60rem; border-radius: 6px; font-size: 0.78rem; font-weight: 600; cursor: pointer; margin-right: 0.3rem;">${isApproved ? 'Revoke' : 'Approve'}</button>
+                                    <button onclick="deleteUser('${uname}')" style="background: transparent; color: #ef4444; border: 1px solid #ef4444; padding: 0.3rem 0.60rem; border-radius: 6px; font-size: 0.78rem; font-weight: 600; cursor: pointer;">Delete</button>
+                                `}
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+
+            // Render Active Sessions Audit Table
+            const sessionsTbody = document.getElementById("adm-sessions-tbody");
+            if (sessions.length === 0) {
+                sessionsTbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">No active session logs recorded yet.</td></tr>`;
+            } else {
+                sessionsTbody.innerHTML = sessions.map(s => `
+                    <tr>
+                        <td><strong>${s.username}</strong></td>
+                        <td><span class="user-badge">${s.role}</span></td>
+                        <td><code style="color: var(--primary-accent); font-weight: 700;">${s.ip}</code></td>
+                        <td>${s.browser}</td>
+                        <td>${s.loginTime}</td>
+                        <td><span class="badge SAFE">ACTIVE</span></td>
+                    </tr>
+                `).join('');
+            }
+        }
+
+        async function approveUser(uname) {
+            const users = getUsers();
+            if (users[uname]) {
+                users[uname].status = "Approved";
+                saveUsers(users);
+                await syncUserToSupabase(uname, users[uname].role, "Approved", users[uname].registeredAt);
+                renderAdminPanel();
+            }
+        }
+
+        async function rejectUser(uname) {
+            await deleteUser(uname);
+        }
+
+        async function toggleUserStatus(uname) {
+            const users = getUsers();
+            if (users[uname]) {
+                const newStatus = (users[uname].status === "Approved") ? "Pending" : "Approved";
+                users[uname].status = newStatus;
+                saveUsers(users);
+                await syncUserToSupabase(uname, users[uname].role, newStatus, users[uname].registeredAt);
+                renderAdminPanel();
+            }
+        }
+
+        async function deleteUser(uname) {
+            if (uname === "Admin") return;
+            const users = getUsers();
+            delete users[uname];
+            saveUsers(users);
+            await deleteUserFromSupabase(uname);
+            renderAdminPanel();
+        }
+
         function setSimMode(mode) {
             activeSimMode = mode;
             document.querySelectorAll(".mode-pill").forEach(p => p.classList.remove("active"));
