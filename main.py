@@ -70,99 +70,159 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mine Subsidence Early Warning System</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <title>Megam Mine-Guard AI — Subsidence & Hazard Early Warning System</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
-            --bg-color: #0f172a;
-            --card-bg: #1e293b;
+            --bg-dark: #090d16;
+            --bg-card: #131c2e;
+            --bg-card-hover: #1a263e;
+            --border-color: rgba(255, 255, 255, 0.08);
+            --border-accent: rgba(56, 189, 248, 0.2);
+            --primary-accent: #38bdf8;
+            --primary-glow: rgba(56, 189, 248, 0.25);
             --text-primary: #f8fafc;
-            --text-secondary: #94a3b8;
-            --accent-blue: #38bdf8;
-            --safe-color: #22c55e;
-            --warn-color: #eab308;
+            --text-muted: #94a3b8;
+            --safe-color: #10b981;
+            --safe-glow: rgba(16, 185, 129, 0.25);
+            --warn-color: #f59e0b;
+            --warn-glow: rgba(245, 158, 11, 0.25);
             --danger-color: #ef4444;
-            --border-color: #334155;
+            --danger-glow: rgba(239, 68, 68, 0.25);
+            --gradient-hero: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
-        body { background-color: var(--bg-color); color: var(--text-primary); min-height: 100vh; display: flex; flex-direction: column; }
+        body { background-color: var(--bg-dark); color: var(--text-primary); min-height: 100vh; display: flex; flex-direction: column; overflow-x: hidden; }
+
+        h1, h2, h3, h4, .brand-font { font-family: 'Montserrat', sans-serif; }
+
+        /* Top Notification Bar */
+        .top-bar { background: linear-gradient(90deg, #1e3a8a, #0284c7); color: #fff; text-align: center; padding: 0.4rem 1rem; font-size: 0.8rem; font-weight: 600; letter-spacing: 0.05em; display: flex; justify-content: center; align-items: center; gap: 0.5rem; }
+        .top-bar span.pulse-dot { width: 8px; height: 8px; background: #4ade80; border-radius: 50%; display: inline-block; animation: pulse 1.5s infinite; }
+
+        @keyframes pulse { 0% { opacity: 0.3; transform: scale(0.9); } 50% { opacity: 1; transform: scale(1.2); } 100% { opacity: 0.3; transform: scale(0.9); } }
 
         /* Navigation Header */
-        header { background: rgba(30, 41, 59, 0.8); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border-color); padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; }
-        .logo-title { display: flex; align-items: center; gap: 0.75rem; font-size: 1.25rem; font-weight: 700; color: #fff; }
-        .user-profile { display: flex; align-items: center; gap: 1rem; }
-        .user-badge { background: #334155; padding: 0.4rem 0.8rem; borderRadius: 20px; font-size: 0.85rem; color: var(--accent-blue); font-weight: 600; }
-        .btn-logout { background: #ef4444; color: white; border: none; padding: 0.4rem 0.9rem; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85rem; transition: 0.2s; }
-        .btn-logout:hover { background: #dc2626; }
+        header { background: rgba(19, 28, 46, 0.85); backdrop-filter: blur(16px); border-bottom: 1px solid var(--border-color); padding: 1rem 2.5rem; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; }
+        .logo-container { display: flex; align-items: center; gap: 0.8rem; }
+        .logo-icon { background: linear-gradient(135deg, #0284c7, #38bdf8); width: 38px; height: 38px; border-radius: 10px; display: flex; justify-content: center; align-items: center; font-size: 1.2rem; box-shadow: 0 0 15px var(--primary-glow); }
+        .logo-text { font-size: 1.2rem; font-weight: 800; color: #fff; letter-spacing: -0.02em; }
+        .logo-text span { color: var(--primary-accent); }
+
+        .nav-actions { display: flex; align-items: center; gap: 1.2rem; }
+        .system-pill { background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3); color: #4ade80; padding: 0.35rem 0.85rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700; display: flex; align-items: center; gap: 0.4rem; }
+        .user-badge { background: #1e293b; border: 1px solid var(--border-color); padding: 0.4rem 0.9rem; border-radius: 20px; font-size: 0.85rem; color: #e2e8f0; font-weight: 600; }
+        .btn-logout { background: transparent; color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4); padding: 0.4rem 0.9rem; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.85rem; transition: all 0.2s; }
+        .btn-logout:hover { background: #ef4444; color: #fff; }
 
         /* Auth Screen Overlay */
-        #auth-screen { position: fixed; inset: 0; background: var(--bg-color); z-index: 200; display: flex; justify-content: center; align-items: center; padding: 1.5rem; }
-        .auth-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 2.5rem; width: 100%; max-width: 440px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); }
-        .auth-tabs { display: flex; border-bottom: 1px solid var(--border-color); margin-bottom: 1.5rem; }
-        .auth-tab { flex: 1; padding: 0.75rem; text-align: center; cursor: pointer; font-weight: 600; color: var(--text-secondary); border-bottom: 2px solid transparent; transition: 0.2s; }
-        .auth-tab.active { color: var(--accent-blue); border-bottom-color: var(--accent-blue); }
+        #auth-screen { position: fixed; inset: 0; background: radial-gradient(circle at center, #1e293b 0%, #090d16 100%); z-index: 200; display: flex; justify-content: center; align-items: center; padding: 1.5rem; }
+        .auth-card { background: var(--bg-card); border: 1px solid var(--border-accent); border-radius: 16px; padding: 2.5rem; width: 100%; max-width: 440px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7); backdrop-filter: blur(20px); }
+        .auth-header { text-align: center; margin-bottom: 1.8rem; }
+        .auth-header h2 { font-size: 1.5rem; font-weight: 800; color: #fff; margin-bottom: 0.4rem; }
+        .auth-header p { color: var(--text-muted); font-size: 0.85rem; }
+
+        .auth-tabs { display: flex; background: #0f172a; border-radius: 10px; padding: 0.3rem; margin-bottom: 1.5rem; border: 1px solid var(--border-color); }
+        .auth-tab { flex: 1; padding: 0.65rem; text-align: center; cursor: pointer; font-weight: 600; color: var(--text-muted); border-radius: 8px; font-size: 0.9rem; transition: 0.2s; }
+        .auth-tab.active { background: var(--primary-accent); color: #090d16; font-weight: 700; }
+
         .form-group { margin-bottom: 1.2rem; }
-        .form-group label { display: block; margin-bottom: 0.4rem; font-size: 0.85rem; color: var(--text-secondary); }
-        .form-group input, .form-group select { width: 100%; padding: 0.75rem; background: #0f172a; border: 1px solid var(--border-color); border-radius: 6px; color: #fff; font-size: 0.95rem; }
-        .form-group input:focus { outline: none; border-color: var(--accent-blue); }
-        .btn-submit { width: 100%; padding: 0.85rem; background: var(--accent-blue); color: #0f172a; border: none; border-radius: 6px; font-weight: 700; cursor: pointer; font-size: 1rem; transition: 0.2s; margin-top: 0.5rem; }
-        .btn-submit:hover { background: #0284c7; color: #fff; }
-        .auth-msg { margin-top: 1rem; padding: 0.75rem; border-radius: 6px; font-size: 0.85rem; display: none; text-align: center; }
-        .auth-msg.error { background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid #ef4444; }
-        .auth-msg.success { background: rgba(34, 197, 94, 0.2); color: #86efac; border: 1px solid #22c55e; }
+        .form-group label { display: block; margin-bottom: 0.4rem; font-size: 0.85rem; color: var(--text-muted); font-weight: 500; }
+        .form-group input, .form-group select { width: 100%; padding: 0.8rem 1rem; background: #090d16; border: 1px solid var(--border-color); border-radius: 8px; color: #fff; font-size: 0.95rem; transition: 0.2s; }
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: var(--primary-accent); box-shadow: 0 0 10px var(--primary-glow); }
+        .btn-submit { width: 100%; padding: 0.85rem; background: linear-gradient(135deg, #0284c7, #38bdf8); color: #090d16; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 1rem; transition: all 0.2s; margin-top: 0.5rem; }
+        .btn-submit:hover { transform: translateY(-1px); box-shadow: 0 10px 20px -5px var(--primary-glow); color: #fff; }
+        
+        .admin-hint { background: rgba(56, 189, 248, 0.08); border: 1px dashed rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 0.75rem; margin-top: 1.2rem; font-size: 0.8rem; color: var(--primary-accent); text-align: center; }
 
-        /* Main Dashboard Content */
-        main { padding: 2rem; max-width: 1400px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 1.5rem; flex: 1; }
+        .auth-msg { margin-top: 1rem; padding: 0.75rem; border-radius: 8px; font-size: 0.85rem; display: none; text-align: center; font-weight: 600; }
+        .auth-msg.error { background: rgba(239, 68, 68, 0.15); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.3); }
+        .auth-msg.success { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.3); }
 
-        /* Status Alert Banner */
-        .status-banner { padding: 1.25rem 1.5rem; border-radius: 10px; font-size: 1.2rem; font-weight: 700; display: flex; align-items: center; justify-content: space-between; border: 1px solid transparent; transition: 0.3s; }
-        .status-banner.SAFE { background: rgba(34, 197, 94, 0.15); color: #4ade80; border-color: var(--safe-color); }
-        .status-banner.WARNING { background: rgba(234, 179, 8, 0.15); color: #fde047; border-color: var(--warn-color); }
-        .status-banner.DANGER { background: rgba(239, 68, 68, 0.15); color: #fca5a5; border-color: var(--danger-color); }
-        .status-banner.DISCONNECTED { background: rgba(148, 163, 184, 0.15); color: #cbd5e1; border-color: var(--text-secondary); }
+        /* Dashboard Container */
+        main { padding: 2rem 2.5rem; max-width: 1440px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 1.8rem; flex: 1; }
 
-        /* Metric Grid */
-        .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.25rem; }
-        .metric-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 10px; padding: 1.25rem; display: flex; flex-direction: column; gap: 0.5rem; }
-        .metric-label { font-size: 0.85rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
-        .metric-value { font-size: 1.8rem; font-weight: 700; color: #fff; }
-        .metric-unit { font-size: 0.85rem; color: var(--accent-blue); font-weight: 600; }
+        /* Hero Banner */
+        .hero-banner { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.5rem 2rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
+        .hero-title h1 { font-size: 1.4rem; font-weight: 800; color: #fff; margin-bottom: 0.3rem; }
+        .hero-title p { color: var(--text-muted); font-size: 0.88rem; }
 
-        /* Controls Section */
-        .controls-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 10px; padding: 1.25rem; display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: center; }
-        .control-group { display: flex; flex-direction: column; gap: 0.4rem; }
-        .control-group label { font-size: 0.85rem; color: var(--text-secondary); font-weight: 600; }
-        .control-group select, .control-group input[type="range"] { background: #0f172a; border: 1px solid var(--border-color); color: #fff; padding: 0.5rem 0.8rem; border-radius: 6px; }
+        /* Dynamic Status Banner */
+        .status-banner { padding: 1.25rem 1.8rem; border-radius: 12px; font-size: 1.15rem; font-weight: 700; display: flex; align-items: center; justify-content: space-between; border: 1px solid transparent; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .status-banner.SAFE { background: rgba(16, 185, 129, 0.12); color: #34d399; border-color: var(--safe-color); box-shadow: 0 0 25px var(--safe-glow); }
+        .status-banner.WARNING { background: rgba(245, 158, 11, 0.12); color: #fbbf24; border-color: var(--warn-color); box-shadow: 0 0 25px var(--warn-glow); }
+        .status-banner.DANGER { background: rgba(239, 68, 68, 0.12); color: #f87171; border-color: var(--danger-color); box-shadow: 0 0 25px var(--danger-glow); }
+        .status-banner.DISCONNECTED { background: rgba(148, 163, 184, 0.1); color: #cbd5e1; border-color: var(--text-muted); }
 
-        /* Visual Trends & Log Grid */
+        /* Metrics Cards */
+        .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem; }
+        .metric-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.4rem; display: flex; flex-direction: column; justify-content: space-between; gap: 0.8rem; transition: transform 0.2s, border-color 0.2s; position: relative; overflow: hidden; }
+        .metric-card:hover { transform: translateY(-2px); border-color: var(--border-accent); }
+        .metric-header { display: flex; justify-content: space-between; align-items: center; }
+        .metric-title { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; }
+        .metric-icon { width: 32px; height: 32px; border-radius: 8px; background: rgba(56, 189, 248, 0.1); color: var(--primary-accent); display: flex; justify-content: center; align-items: center; font-size: 1rem; }
+        .metric-value { font-size: 2rem; font-weight: 800; color: #fff; font-family: 'Montserrat', sans-serif; }
+        .metric-footer { font-size: 0.8rem; color: var(--primary-accent); font-weight: 600; display: flex; align-items: center; gap: 0.3rem; }
+
+        /* Control Panel Card */
+        .controls-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.4rem 1.8rem; display: flex; flex-wrap: wrap; gap: 2rem; align-items: center; justify-content: space-between; }
+        .controls-left { display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: center; }
+        .control-item { display: flex; flex-direction: column; gap: 0.4rem; }
+        .control-item label { font-size: 0.8rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+        .control-item select { background: #090d16; border: 1px solid var(--border-color); color: #fff; padding: 0.6rem 1rem; border-radius: 8px; font-weight: 600; font-size: 0.9rem; cursor: pointer; }
+        
+        .mode-pills { display: flex; gap: 0.5rem; background: #090d16; padding: 0.3rem; border-radius: 10px; border: 1px solid var(--border-color); }
+        .mode-pill { padding: 0.45rem 0.9rem; border-radius: 7px; font-size: 0.82rem; font-weight: 600; cursor: pointer; color: var(--text-muted); transition: 0.2s; }
+        .mode-pill.active { background: var(--primary-accent); color: #090d16; font-weight: 700; }
+
+        /* Dashboard Grid Layout */
         .dashboard-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; }
-        @media (max-width: 1024px) { .dashboard-grid { grid-template-columns: 1fr; } }
-        
-        .panel-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 10px; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; }
-        .panel-title { font-size: 1.1rem; font-weight: 700; color: #fff; }
+        @media (max-width: 1100px) { .dashboard-grid { grid-template-columns: 1fr; } }
 
-        /* Telemetry Table */
-        .table-wrapper { overflow-y: auto; max-height: 340px; border: 1px solid var(--border-color); border-radius: 6px; }
+        .panel-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.6rem; display: flex; flex-direction: column; gap: 1.2rem; }
+        .panel-header { display: flex; justify-content: space-between; align-items: center; }
+        .panel-title { font-size: 1.05rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 0.6rem; }
+        .panel-title span { color: var(--primary-accent); }
+
+        /* Manual Input Sliders Box */
+        #manual-controls { display: none; background: #090d16; border: 1px solid var(--border-accent); border-radius: 10px; padding: 1rem 1.4rem; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 0.5rem; }
+        .slider-group { display: flex; flex-direction: column; gap: 0.3rem; }
+        .slider-group label { font-size: 0.78rem; color: var(--text-muted); font-weight: 600; display: flex; justify-content: space-between; }
+        .slider-group input[type="range"] { width: 100%; accent-color: var(--primary-accent); cursor: pointer; }
+
+        /* Table Styling */
+        .table-wrapper { overflow-y: auto; max-height: 360px; border: 1px solid var(--border-color); border-radius: 8px; }
         table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem; }
-        th { background: #0f172a; color: var(--text-secondary); padding: 0.75rem 1rem; position: sticky; top: 0; }
-        td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border-color); }
-        tr:nth-child(even) { background: rgba(15, 23, 42, 0.4); }
+        th { background: #090d16; color: var(--text-muted); padding: 0.8rem 1rem; font-weight: 600; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; position: sticky; top: 0; }
+        td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border-color); font-weight: 500; }
+        tr:hover { background: rgba(56, 189, 248, 0.04); }
         
-        .badge { padding: 0.25rem 0.5rem; border-radius: 4px; font-weight: 700; font-size: 0.75rem; display: inline-block; }
-        .badge.SAFE { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
-        .badge.WARNING { background: rgba(234, 179, 8, 0.2); color: #fde047; }
-        .badge.DANGER { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
+        .badge { padding: 0.3rem 0.6rem; border-radius: 6px; font-weight: 700; font-size: 0.75rem; letter-spacing: 0.03em; display: inline-block; }
+        .badge.SAFE { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+        .badge.WARNING { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+        .badge.DANGER { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
+
+        /* Footer */
+        footer { border-top: 1px solid var(--border-color); padding: 1.5rem 2.5rem; color: var(--text-muted); font-size: 0.82rem; display: flex; justify-content: space-between; align-items: center; margin-top: auto; background: var(--bg-dark); }
+        footer a { color: var(--primary-accent); text-decoration: none; }
     </style>
 </head>
 <body>
 
+    <!-- TOP ANNOUNCEMENT BAR -->
+    <div class="top-bar">
+        <span class="pulse-dot"></span> MEGAM MINE-GUARD AI ACTIVE — REAL-TIME SUBSIDENCE & HAZARD MONITORING SYSTEM (SIH 26025)
+    </div>
+
     <!-- AUTHENTICATION OVERLAY -->
     <div id="auth-screen">
         <div class="auth-card">
-            <h2 style="text-align: center; margin-bottom: 0.5rem; color: #fff;">🚨 Mine Hazard Monitoring</h2>
-            <p style="text-align: center; color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1.5rem;">SIH Project 26025 Early Warning Dashboard</p>
+            <div class="auth-header">
+                <h2>🚨 MEGAM MINE-GUARD AI</h2>
+                <p>Enterprise Early Warning System for Mine Subsidence</p>
+            </div>
             
             <div class="auth-tabs">
                 <div class="auth-tab active" onclick="switchAuthTab('login')">🔑 Sign In</div>
@@ -179,7 +239,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                     <label>Password</label>
                     <input type="password" id="login-password" required placeholder="••••••••">
                 </div>
-                <button type="submit" class="btn-submit">Sign In</button>
+                <button type="submit" class="btn-submit">Sign In to Console</button>
             </form>
 
             <!-- REGISTER FORM -->
@@ -203,16 +263,24 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 <button type="submit" class="btn-submit">Register Account</button>
             </form>
 
+            <div class="admin-hint">
+                💡 <strong>Administrator Access:</strong> User: <code>Admin</code> | Pass: <code>godisgreat</code>
+            </div>
+
             <div id="auth-msg" class="auth-msg"></div>
         </div>
     </div>
 
-    <!-- MAIN APP HEADER -->
+    <!-- HEADER NAVBAR -->
     <header>
-        <div class="logo-title">
-            <span>🚨</span> Mine Subsidence Early Warning System
+        <div class="logo-container">
+            <div class="logo-icon">🚨</div>
+            <div class="logo-text">MEGAM <span>MINE-GUARD AI</span></div>
         </div>
-        <div class="user-profile">
+        <div class="nav-actions">
+            <div class="system-pill">
+                <span style="width: 6px; height: 6px; background: #4ade80; border-radius: 50%;"></span> SYSTEM ONLINE
+            </div>
             <span class="user-badge" id="header-user">Admin (Administrator)</span>
             <button class="btn-logout" onclick="handleLogout()">Logout</button>
         </div>
@@ -220,88 +288,148 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 
     <!-- DASHBOARD CONTAINER -->
     <main>
-        <!-- STATUS BANNER -->
-        <div id="status-banner" class="status-banner SAFE">
-            <div>STATUS: <span id="status-text">SAFE — Normal Operation</span> (Node: NODE_01)</div>
-            <div style="font-size: 0.85rem; font-weight: 400;" id="last-updated">Updated: --:--:--</div>
+        <!-- HERO BANNER -->
+        <div class="hero-banner">
+            <div class="hero-title">
+                <h1>Mine Hazard & Subsidence Early Warning System</h1>
+                <p>Smart India Hackathon (SIH) Project 26025 — Real-Time IoT Telemetry & ML Risk Prediction</p>
+            </div>
+            <div style="font-size: 0.85rem; color: var(--text-muted); background: #090d16; padding: 0.6rem 1rem; border-radius: 8px; border: 1px solid var(--border-color);">
+                Connected Sensor: <strong style="color: #fff;">NODE_01</strong> | Model: <strong style="color: var(--primary-accent);">RandomForest (100 Trees)</strong>
+            </div>
         </div>
 
-        <!-- CONTROLS -->
+        <!-- HAZARD STATUS BANNER -->
+        <div id="status-banner" class="status-banner SAFE">
+            <div>STATUS: <span id="status-text">SAFE — Normal Operation</span> (Node: NODE_01)</div>
+            <div style="font-size: 0.85rem; font-weight: 500;" id="last-updated">Last Sync: --:--:--</div>
+        </div>
+
+        <!-- CONTROLS CARD -->
         <div class="controls-card">
-            <div class="control-group">
-                <label>Simulation Mode</label>
-                <select id="sim-mode">
-                    <option value="dynamic">Dynamic (Random Hazards)</option>
-                    <option value="safe">Normal (Safe)</option>
-                    <option value="warning">Drift (Warning)</option>
-                    <option value="danger">Hazard (Danger)</option>
-                </select>
+            <div class="controls-left">
+                <div class="control-item">
+                    <label>Simulation Scenario</label>
+                    <div class="mode-pills">
+                        <div class="mode-pill active" onclick="setSimMode('dynamic')">Dynamic</div>
+                        <div class="mode-pill" onclick="setSimMode('safe')">Safe</div>
+                        <div class="mode-pill" onclick="setSimMode('warning')">Warning</div>
+                        <div class="mode-pill" onclick="setSimMode('danger')">Danger</div>
+                        <div class="mode-pill" onclick="setSimMode('manual')">Manual Slider</div>
+                    </div>
+                </div>
             </div>
-            <div class="control-group">
-                <label>Live Sensor Polling</label>
-                <select id="stream-toggle">
-                    <option value="on">Enabled (Every 2s)</option>
+            <div class="control-item">
+                <label>Stream Control</label>
+                <select id="stream-toggle" onchange="togglePolling()">
+                    <option value="on">Live Polling (Every 2s)</option>
                     <option value="off">Paused</option>
                 </select>
             </div>
         </div>
 
-        <!-- METRICS CARDS -->
-        <div class="metrics-grid">
-            <div class="metric-card">
-                <div class="metric-label">Filtered Tilt</div>
-                <div class="metric-value" id="val-tilt">0.0245</div>
-                <div class="metric-unit">Deg/m</div>
+        <!-- MANUAL SLIDERS CONTAINER (Visible only in Manual mode) -->
+        <div id="manual-controls">
+            <div class="slider-group">
+                <label>Filtered Tilt: <span id="val-manual-tilt">0.05</span> deg/m</label>
+                <input type="range" id="slider-tilt" min="0" max="15" step="0.01" value="0.05" oninput="updateManualVal()">
             </div>
-            <div class="metric-card">
-                <div class="metric-label">Filtered Vibration</div>
-                <div class="metric-value" id="val-vib">0.1280</div>
-                <div class="metric-unit">g</div>
+            <div class="slider-group">
+                <label>Filtered Vibration: <span id="val-manual-vib">0.10</span> g</label>
+                <input type="range" id="slider-vib" min="0" max="6" step="0.01" value="0.10" oninput="updateManualVal()">
             </div>
-            <div class="metric-card">
-                <div class="metric-label">Filtered Strain</div>
-                <div class="metric-value" id="val-strain">0.0120</div>
-                <div class="metric-unit">mm/m</div>
-            </div>
-            <div class="metric-card">
-                <div class="metric-label">Alert Summary (Buffer)</div>
-                <div class="metric-value" id="val-alerts">0 / 0</div>
-                <div class="metric-unit">Warn / Danger</div>
+            <div class="slider-group">
+                <label>Filtered Strain: <span id="val-manual-strain">0.02</span> mm/m</label>
+                <input type="range" id="slider-strain" min="0" max="8" step="0.01" value="0.02" oninput="updateManualVal()">
             </div>
         </div>
 
-        <!-- CHARTS & LOG TABLE -->
+        <!-- METRICS GRID -->
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-header">
+                    <span class="metric-title">Filtered Tilt</span>
+                    <div class="metric-icon">📐</div>
+                </div>
+                <div class="metric-value" id="val-tilt">0.0245</div>
+                <div class="metric-footer">Deg/m — Structural Gradient</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-header">
+                    <span class="metric-title">Filtered Vibration</span>
+                    <div class="metric-icon">📳</div>
+                </div>
+                <div class="metric-value" id="val-vib">0.1280</div>
+                <div class="metric-footer">g — Seismic Acceleration</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-header">
+                    <span class="metric-title">Filtered Strain</span>
+                    <div class="metric-icon">⚡</div>
+                </div>
+                <div class="metric-value" id="val-strain">0.0120</div>
+                <div class="metric-footer">mm/m — Micro-Displacement</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-header">
+                    <span class="metric-title">Risk Alerts (Buffer)</span>
+                    <div class="metric-icon">🚨</div>
+                </div>
+                <div class="metric-value" id="val-alerts">0 / 0</div>
+                <div class="metric-footer">Warnings / Danger Events</div>
+            </div>
+        </div>
+
+        <!-- CHARTS & LOG TABLE GRID -->
         <div class="dashboard-grid">
             <div class="panel-card">
-                <div class="panel-title">📈 Live Sensor Telemetry Trends</div>
+                <div class="panel-header">
+                    <div class="panel-title">📈 <span>Real-Time Sensor Telemetry Trends</span></div>
+                    <span style="font-size: 0.78rem; color: var(--text-muted);">Last 15 Observations</span>
+                </div>
                 <div style="position: relative; height: 320px; width: 100%;">
                     <canvas id="trendChart"></canvas>
                 </div>
             </div>
+
             <div class="panel-card">
-                <div class="panel-title">📋 Telemetry Log Buffer</div>
-                <div class="table-wrapper">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Time</th>
-                                <th>Tilt</th>
-                                <th>Vib</th>
-                                <th>Strain</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody id="log-tbody">
-                            <!-- Rows inserted dynamically -->
-                        </tbody>
-                    </table>
+                <div class="panel-header">
+                    <div class="panel-title">📊 <span>Risk Level Distribution</span></div>
+                </div>
+                <div style="position: relative; height: 190px; width: 100%; display: flex; justify-content: center;">
+                    <canvas id="riskDoughnut"></canvas>
+                </div>
+                <div style="margin-top: 1rem; border-t: 1px solid var(--border-color); pt-3;">
+                    <div style="font-size: 0.85rem; font-weight: 700; color: #fff; margin-bottom: 0.5rem;">📋 Telemetry Buffer Log</div>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Tilt</th>
+                                    <th>Vib</th>
+                                    <th>Strain</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="log-tbody">
+                                <!-- Dynamic Rows -->
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
     </main>
 
+    <!-- FOOTER -->
+    <footer>
+        <div>© 2026 <strong>Megam Mine-Guard AI</strong> — SIH Project 26025. All Rights Reserved.</div>
+        <div>Engineered for Deep Tech Mine Safety & Digital Transformation</div>
+    </footer>
+
     <script>
-        // Authentication System Storage
+        // Authentication System
         const DEFAULT_USERS = { "Admin": { password: "godisgreat", role: "Administrator" } };
         function getUsers() {
             const saved = localStorage.getItem("mine_users");
@@ -309,6 +437,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
         }
 
         let currentUser = localStorage.getItem("mine_current_user");
+        let activeSimMode = "dynamic";
 
         function checkAuth() {
             if (currentUser) {
@@ -352,8 +481,8 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             if (users[u] && users[u].password === p) {
                 currentUser = u;
                 localStorage.setItem("mine_current_user", u);
-                showAuthMsg("Login successful! Loading dashboard...", false);
-                setTimeout(checkAuth, 600);
+                showAuthMsg("Login successful! Redirecting to console...", false);
+                setTimeout(checkAuth, 500);
             } else {
                 showAuthMsg("Invalid username or password.", true);
             }
@@ -380,50 +509,93 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             checkAuth();
         }
 
-        // Chart Initialization
-        const ctx = document.getElementById('trendChart').getContext('2d');
-        const trendChart = new Chart(ctx, {
+        function setSimMode(mode) {
+            activeSimMode = mode;
+            document.querySelectorAll(".mode-pill").forEach(p => p.classList.remove("active"));
+            event.target.classList.add("active");
+            
+            const manualBox = document.getElementById("manual-controls");
+            manualBox.style.display = (mode === "manual") ? "grid" : "none";
+            updateTelemetry();
+        }
+
+        function updateManualVal() {
+            document.getElementById("val-manual-tilt").textContent = document.getElementById("slider-tilt").value;
+            document.getElementById("val-manual-vib").textContent = document.getElementById("slider-vib").value;
+            document.getElementById("val-manual-strain").textContent = document.getElementById("slider-strain").value;
+            updateTelemetry();
+        }
+
+        function togglePolling() {
+            // Handled in interval loop
+        }
+
+        // Initialize Trend Line Chart
+        const ctxTrend = document.getElementById('trendChart').getContext('2d');
+        const trendChart = new Chart(ctxTrend, {
             type: 'line',
             data: {
                 labels: [],
                 datasets: [
-                    { label: 'Tilt (deg/m)', data: [], borderColor: '#38bdf8', tension: 0.3, fill: false },
-                    { label: 'Vibration (g)', data: [], borderColor: '#eab308', tension: 0.3, fill: false },
-                    { label: 'Strain (mm/m)', data: [], borderColor: '#ef4444', tension: 0.3, fill: false }
+                    { label: 'Tilt (deg/m)', data: [], borderColor: '#38bdf8', backgroundColor: 'rgba(56, 189, 248, 0.1)', tension: 0.35, fill: true },
+                    { label: 'Vibration (g)', data: [], borderColor: '#f59e0b', backgroundColor: 'rgba(245, 158, 11, 0.1)', tension: 0.35, fill: true },
+                    { label: 'Strain (mm/m)', data: [], borderColor: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.1)', tension: 0.35, fill: true }
                 ]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 scales: {
-                    x: { ticks: { color: '#94a3b8' }, grid: { color: '#334155' } },
-                    y: { ticks: { color: '#94a3b8' }, grid: { color: '#334155' } }
+                    x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255, 255, 255, 0.05)' } },
+                    y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255, 255, 255, 0.05)' } }
                 },
-                plugins: { legend: { labels: { color: '#f8fafc' } } }
+                plugins: { legend: { labels: { color: '#f8fafc', font: { family: 'Inter', weight: '600' } } } }
             }
         });
 
-        // Telemetry Data Simulation & Fetch Loop
+        // Initialize Risk Level Doughnut Chart
+        const ctxRisk = document.getElementById('riskDoughnut').getContext('2d');
+        const riskDoughnut = new Chart(ctxRisk, {
+            type: 'doughnut',
+            data: {
+                labels: ['SAFE', 'WARNING', 'DANGER'],
+                datasets: [{
+                    data: [1, 0, 0],
+                    backgroundColor: ['#10b981', '#f59e0b', '#ef4444'],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'right', labels: { color: '#f8fafc', font: { family: 'Inter', size: 11 } } } },
+                cutout: '70%'
+            }
+        });
+
+        // Telemetry Data Logic
         let historyBuffer = [];
-        let warnCount = 0;
-        let dangerCount = 0;
+        let safeCount = 0, warnCount = 0, dangerCount = 0;
 
         function getSimulatedPayload() {
-            const mode = document.getElementById("sim-mode").value;
             let tilt, vib, strain;
 
-            if (mode === "safe") {
+            if (activeSimMode === "safe") {
                 tilt = (Math.random() * 0.30 + 0.001).toFixed(4);
                 vib = (Math.random() * 0.30 + 0.01).toFixed(4);
                 strain = (Math.random() * 0.20 + 0.001).toFixed(4);
-            } else if (mode === "warning") {
+            } else if (activeSimMode === "warning") {
                 tilt = (Math.random() * 3.00 + 0.50).toFixed(4);
                 vib = (Math.random() * 0.85 + 0.35).toFixed(4);
                 strain = (Math.random() * 1.40 + 0.40).toFixed(4);
-            } else if (mode === "danger") {
+            } else if (activeSimMode === "danger") {
                 tilt = (Math.random() * 8.00 + 4.00).toFixed(4);
                 vib = (Math.random() * 3.50 + 1.50).toFixed(4);
                 strain = (Math.random() * 5.00 + 2.00).toFixed(4);
+            } else if (activeSimMode === "manual") {
+                tilt = parseFloat(document.getElementById("slider-tilt").value).toFixed(4);
+                vib = parseFloat(document.getElementById("slider-vib").value).toFixed(4);
+                strain = parseFloat(document.getElementById("slider-strain").value).toFixed(4);
             } else { // Dynamic
                 const r = Math.random();
                 if (r < 0.75) {
@@ -473,17 +645,19 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 
             const timeStr = new Date().toLocaleTimeString();
 
-            // Update Metrics Cards
+            // Metrics Update
             document.getElementById("val-tilt").textContent = payload.filtered_tilt.toFixed(4);
             document.getElementById("val-vib").textContent = payload.filtered_vibration.toFixed(4);
             document.getElementById("val-strain").textContent = payload.filtered_strain.toFixed(4);
-            document.getElementById("last-updated").textContent = "Updated: " + timeStr;
+            document.getElementById("last-updated").textContent = "Last Sync: " + timeStr;
 
+            if (status === "SAFE") safeCount++;
             if (status === "WARNING") warnCount++;
             if (status === "DANGER") dangerCount++;
+
             document.getElementById("val-alerts").textContent = `${warnCount} / ${dangerCount}`;
 
-            // Update Status Banner
+            // Status Banner Update
             const banner = document.getElementById("status-banner");
             const bannerText = document.getElementById("status-text");
             banner.className = "status-banner " + status;
@@ -492,7 +666,11 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             else if (status === "DANGER") bannerText.textContent = "DANGER — Immediate Collapse Risk Detected!";
             else bannerText.textContent = status;
 
-            // Update Chart
+            // Doughnut Update
+            riskDoughnut.data.datasets[0].data = [safeCount, warnCount, dangerCount];
+            riskDoughnut.update();
+
+            // Trend Chart Update
             if (trendChart.data.labels.length > 15) {
                 trendChart.data.labels.shift();
                 trendChart.data.datasets[0].data.shift();
@@ -505,7 +683,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             trendChart.data.datasets[2].data.push(payload.filtered_strain);
             trendChart.update();
 
-            // Update Log Table
+            // Log Table Update
             historyBuffer.unshift({ time: timeStr, tilt: payload.filtered_tilt, vib: payload.filtered_vibration, strain: payload.filtered_strain, status: status });
             if (historyBuffer.length > 20) historyBuffer.pop();
 
