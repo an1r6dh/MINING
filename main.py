@@ -4,10 +4,33 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
+import time
+import threading
+import requests
+
 app = FastAPI(title="Mine Subsidence Early Warning System")
 
 MODEL_FILE = "model.joblib"
 model = None
+
+SUPABASE_URL = "https://toabcprwbtaipxwzmdyl.supabase.co"
+SUPABASE_KEY = "sb_publishable_DS2T92fPyhKkhGyI41dtzA_qw2_m_3C"
+
+def log_to_supabase_async(payload_dict):
+    """Sends telemetry log packet to Supabase Cloud Database in background thread."""
+    def send():
+        try:
+            url = f"{SUPABASE_URL}/rest/v1/telemetry_logs"
+            headers = {
+                "apikey": SUPABASE_KEY,
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+                "Content-Type": "application/json",
+                "Prefer": "return=minimal"
+            }
+            requests.post(url, json=payload_dict, headers=headers, timeout=3)
+        except Exception:
+            pass
+    threading.Thread(target=send, daemon=True).start()
 
 def get_model():
     global model
@@ -57,7 +80,19 @@ def predict_risk(data: FilteredDataPayload):
     try:
         features = [[data.filtered_tilt, data.filtered_vibration, data.filtered_strain]]
         prediction = clf.predict(features)[0]
-        return {"node_id": data.node_id, "status": str(prediction)}
+        status_str = str(prediction)
+
+        # Async background sync to Supabase Cloud Database
+        log_to_supabase_async({
+            "node_id": data.node_id,
+            "filtered_tilt": data.filtered_tilt,
+            "filtered_vibration": data.filtered_vibration,
+            "filtered_strain": data.filtered_strain,
+            "status": status_str,
+            "timestamp": time.strftime("%H:%M:%S")
+        })
+
+        return {"node_id": data.node_id, "status": status_str}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
 
@@ -73,6 +108,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
     <title>Igniters AI — Subsidence & Hazard Early Warning System</title>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         :root {
             --bg-dark: #090d16;
@@ -678,6 +714,66 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             applyChartTheme(isLight);
         }
 
+        // Supabase Cloud Database Integration
+        const SUPABASE_URL = "https://toabcprwbtaipxwzmdyl.supabase.co";
+        const SUPABASE_KEY = "sb_publishable_DS2T92fPyhKkhGyI41dtzA_qw2_m_3C";
+        let supabaseClient = null;
+
+        try {
+            if (window.supabase && window.supabase.createClient) {
+                supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+                console.log("⚡ Supabase Cloud Database Connected!");
+            }
+        } catch(e) {
+            console.warn("Supabase init notice:", e);
+        }
+
+        async function syncTelemetryToSupabase(record) {
+            if (!supabaseClient) return;
+            try {
+                await supabaseClient.from('telemetry_logs').insert([{
+                    timestamp: record.timestamp,
+                    node_id: record.node_id || "NODE_01",
+                    filtered_tilt: record.filtered_tilt,
+                    filtered_vibration: record.filtered_vibration,
+                    filtered_strain: record.filtered_strain,
+                    status: record.status
+                }]);
+            } catch(err) {
+                console.warn("Supabase log sync notice:", err);
+            }
+        }
+
+        async function syncSessionToSupabase(session) {
+            if (!supabaseClient) return;
+            try {
+                await supabaseClient.from('active_sessions').insert([{
+                    username: session.username,
+                    role: session.role,
+                    ip_address: session.ip,
+                    browser: session.browser,
+                    login_time: session.loginTime,
+                    status: session.status
+                }]);
+            } catch(err) {
+                console.warn("Supabase session sync notice:", err);
+            }
+        }
+
+        async function syncUserToSupabase(username, role, status, registeredAt) {
+            if (!supabaseClient) return;
+            try {
+                await supabaseClient.from('users').upsert([{
+                    username: username,
+                    role: role,
+                    status: status,
+                    registered_at: registeredAt
+                }], { onConflict: 'username' });
+            } catch(err) {
+                console.warn("Supabase user sync notice:", err);
+            }
+        }
+
         // Authentication System — Require Admin Authorization for new accounts
         const DEFAULT_USERS = { 
             "Admin": { password: "godisgreat", role: "Administrator", status: "Approved", registeredAt: "2026-09-01 00:00:00" } 
@@ -729,6 +825,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 
             const updated = [newSession, ...sessions.filter(s => s.username !== username).slice(0, 19)];
             localStorage.setItem("mine_active_sessions", JSON.stringify(updated));
+
+            // Sync session to Supabase
+            syncSessionToSupabase(newSession);
         }
 
         let currentUser = null;
@@ -816,6 +915,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 registeredAt: new Date().toLocaleString()
             };
             saveUsers(users);
+            syncUserToSupabase(u, r, "Pending", users[u].registeredAt);
             showAuthMsg("✅ Account registered! Status: Pending Admin Authorization. Please notify an Administrator to authorize your account.", false);
         }
 
@@ -1031,6 +1131,16 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             // Log Table Update
             historyBuffer.unshift({ time: timeStr, tilt: payload.filtered_tilt, vib: payload.filtered_vibration, strain: payload.filtered_strain, status: status });
             if (historyBuffer.length > 20) historyBuffer.pop();
+
+            // Sync Telemetry Log to Supabase Cloud Database
+            syncTelemetryToSupabase({
+                timestamp: timeStr,
+                node_id: payload.node_id || "NODE_01",
+                filtered_tilt: payload.filtered_tilt,
+                filtered_vibration: payload.filtered_vibration,
+                filtered_strain: payload.filtered_strain,
+                status: status
+            });
 
             const tbody = document.getElementById("log-tbody");
             tbody.innerHTML = historyBuffer.map(r => `
