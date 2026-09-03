@@ -13,3 +13,7 @@ env/
 .vscode/
 .idea/
 *.swp
+
+# Large Satellite Data
+data/
+
