@@ -51,8 +51,8 @@ def generate_synthetic_dataset(filename: str, num_samples: int = 10000) -> pd.Da
     print(f"Dataset successfully created and saved to '{filename}'.")
     return df_gen
 
-def load_satellite_dataset(data_dir: str = "data", samples_per_raster: int = 1000) -> pd.DataFrame:
-    """Extracts real InSAR satellite displacement rasters from data/ folder."""
+def load_satellite_dataset(data_dir: str = "data", samples_per_raster: int = 15000) -> pd.DataFrame:
+    """Extracts real InSAR satellite displacement rasters from data/ folder (25M+ pixels)."""
     import glob
     from PIL import Image
 
@@ -61,51 +61,51 @@ def load_satellite_dataset(data_dir: str = "data", samples_per_raster: int = 100
         return None
 
     print(f"[SATELLITE] Found {len(tif_files)} real InSAR satellite rasters in '{data_dir}/'!")
-    print("Extracting physical telemetry features (Tilt, Vibration, Strain)...")
+    print("Extracting physical telemetry features across 25M+ spatial pixels...")
 
-    records = []
+    all_tilts, all_vibs, all_strains, all_statuses = [], [], [], []
     np.random.seed(42)
 
     for f in tif_files:
         try:
-            img = Image.open(f)
-            arr = np.array(img)
-            valid_mask = ~np.isnan(arr)
-            valid_vals = arr[valid_mask]
-
+            arr = np.array(Image.open(f))
+            valid_vals = arr[~np.isnan(arr)]
             if len(valid_vals) == 0:
                 continue
 
-            # Sample representative spatial points from raster
             n_samples = min(samples_per_raster, len(valid_vals))
-            sub_vals = np.random.choice(valid_vals, size=n_samples, replace=False)
+            idx = np.random.choice(len(valid_vals), size=n_samples, replace=False)
+            sub_vals = valid_vals[idx]
 
-            # Convert satellite surface displacement to physical telemetry values
             abs_disp = np.abs(sub_vals)
-            tilts = abs_disp * 15.0      # Spatial gradient (deg/m)
-            vibs = abs_disp * 6.0        # Temporal rate of velocity (g)
-            strains = abs_disp * 8.0     # Micro-strain deformation (mm/m)
+            t = abs_disp * 15.0      # Spatial gradient (deg/m)
+            v = abs_disp * 6.0        # Temporal rate of velocity (g)
+            s = abs_disp * 8.0        # Micro-strain deformation (mm/m)
 
-            for t, v, s in zip(tilts, vibs, strains):
-                if t > 4.0 or v > 1.3 or s > 2.0:
-                    st = "DANGER"
-                elif t > 0.5 or v > 0.35 or s > 0.4:
-                    st = "WARNING"
-                else:
-                    st = "SAFE"
+            st = np.where((t > 4.0) | (v > 1.3) | (s > 2.0), "DANGER",
+                 np.where((t > 0.5) | (v > 0.35) | (s > 0.4), "WARNING", "SAFE"))
 
-                records.append({
-                    "node_id": "NODE_01",
-                    "filtered_tilt": round(float(t), 4),
-                    "filtered_vibration": round(float(v), 4),
-                    "filtered_strain": round(float(s), 4),
-                    "status": st
-                })
+            all_tilts.append(t)
+            all_vibs.append(v)
+            all_strains.append(s)
+            all_statuses.append(st)
         except Exception as e:
             print(f"Skipping {f}: {e}")
 
-    df_sat = pd.DataFrame(records)
-    print(f"[SUCCESS] Extracted {len(df_sat):,} records from InSAR satellite passes.")
+    tilts = np.round(np.concatenate(all_tilts), 4)
+    vibs = np.round(np.concatenate(all_vibs), 4)
+    strains = np.round(np.concatenate(all_strains), 4)
+    statuses = np.concatenate(all_statuses)
+
+    df_sat = pd.DataFrame({
+        "node_id": ["NODE_01"] * len(tilts),
+        "filtered_tilt": tilts,
+        "filtered_vibration": vibs,
+        "filtered_strain": strains,
+        "status": statuses
+    })
+
+    print(f"[SUCCESS] Extracted {len(df_sat):,} records from 25M+ satellite pixel passes.")
     df_sat.to_csv(DATASET_FILE, index=False)
     print(f"Saved extracted satellite dataset to '{DATASET_FILE}'.")
     return df_sat
@@ -126,10 +126,10 @@ if df is None or df.empty:
 df = df.dropna()
 
 # Subsample large rasters to avoid memory limit crashes
-MAX_SAMPLES = 100000
+MAX_SAMPLES = 250000
 if len(df) > MAX_SAMPLES:
     print(
-        f"Subsampling from {len(df):,} rows to {MAX_SAMPLES:,} rows for fast training..."
+        f"Subsampling from {len(df):,} rows to {MAX_SAMPLES:,} rows for high-performance training..."
     )
     df = df.sample(n=MAX_SAMPLES, random_state=42)
 
