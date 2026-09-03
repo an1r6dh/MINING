@@ -258,7 +258,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             <form id="login-form" onsubmit="handleLogin(event)">
                 <div class="form-group">
                     <label>Username</label>
-                    <input type="text" id="login-username" required placeholder="e.g. Admin">
+                    <input type="text" id="login-username" required placeholder="e.g. User">
                 </div>
                 <div class="form-group">
                     <label>Password</label>
@@ -306,6 +306,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             <div class="nav-links">
                 <button class="nav-btn active" id="nav-btn-monitoring" onclick="switchPage('monitoring')">🖥️ Live Monitoring</button>
                 <button class="nav-btn" id="nav-btn-analytics" onclick="switchPage('analytics')">📊 Telemetry Logs & Risk Analytics</button>
+                <button class="nav-btn" id="nav-btn-admin" style="display: none;" onclick="switchPage('admin')">🛡️ Admin Panel</button>
             </div>
         </div>
         <div class="nav-actions">
@@ -517,6 +518,117 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 </div>
             </div>
         </div>
+
+        <!-- SCREEN 3: DEDICATED ADMIN PANEL -->
+        <div id="page-admin" class="page-container" style="display: none;">
+            <div class="hero-banner">
+                <div class="hero-title">
+                    <h1>🛡️ Administrator Authorization & Security Console</h1>
+                    <p>Manage User Roles, Authorize Pending Registrations, and Track Active User IP & Browser Sessions</p>
+                </div>
+                <button class="nav-btn active" onclick="switchPage('monitoring')">← Back to Monitoring</button>
+            </div>
+
+            <!-- ADMIN STATS CARDS -->
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-title">Pending Authorizations</span>
+                        <div class="metric-icon" style="color: #f59e0b;">⏳</div>
+                    </div>
+                    <div class="metric-value" id="adm-cnt-pending" style="color: #f59e0b;">0</div>
+                    <div class="metric-footer">Awaiting Admin Approval</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-title">Approved Accounts</span>
+                        <div class="metric-icon" style="color: #10b981;">🟢</div>
+                    </div>
+                    <div class="metric-value" id="adm-cnt-approved" style="color: #10b981;">1</div>
+                    <div class="metric-footer">Authorized User Profiles</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-title">Active User Sessions</span>
+                        <div class="metric-icon">🌐</div>
+                    </div>
+                    <div class="metric-value" id="adm-cnt-sessions">1</div>
+                    <div class="metric-footer">Live Active Connections</div>
+                </div>
+            </div>
+
+            <!-- PENDING AUTHORIZATIONS TABLE -->
+            <div class="panel-card">
+                <div class="panel-header">
+                    <div class="panel-title">⏳ <span>Pending Account Authorization Requests</span></div>
+                    <span style="font-size: 0.78rem; color: var(--text-muted);">Users waiting for Admin Approval before Sign In</span>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Username</th>
+                                <th>Requested Role</th>
+                                <th>Registration Date</th>
+                                <th>Authorization Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="adm-pending-tbody">
+                            <!-- Dynamic Pending Rows -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ALL REGISTERED USERS MANAGEMENT -->
+            <div class="panel-card">
+                <div class="panel-header">
+                    <div class="panel-title">👥 <span>All Registered User Accounts</span></div>
+                    <span style="font-size: 0.78rem; color: var(--text-muted);">User Roles & Access Permissions</span>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Username</th>
+                                <th>Assigned Role</th>
+                                <th>Status</th>
+                                <th>Registration Date</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="adm-users-tbody">
+                            <!-- Dynamic User Rows -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ACTIVE USER IP & BROWSER SESSIONS TABLE -->
+            <div class="panel-card">
+                <div class="panel-header">
+                    <div class="panel-title">🌐 <span>Active User Sessions & IP Audit Log</span></div>
+                    <span style="font-size: 0.78rem; color: var(--text-muted);">Real-Time Session IP Address & Browser Tracker</span>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>User</th>
+                                <th>Role</th>
+                                <th>IP Address</th>
+                                <th>Browser & OS</th>
+                                <th>Login Timestamp</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="adm-sessions-tbody">
+                            <!-- Dynamic Session Rows -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
     </main>
 
     <!-- FOOTER -->
@@ -566,11 +678,57 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             applyChartTheme(isLight);
         }
 
-        // Authentication System — Always require Sign In on fresh page load
-        const DEFAULT_USERS = { "Admin": { password: "godisgreat", role: "Administrator" } };
+        // Authentication System — Require Admin Authorization for new accounts
+        const DEFAULT_USERS = { 
+            "Admin": { password: "godisgreat", role: "Administrator", status: "Approved", registeredAt: "2026-09-01 00:00:00" } 
+        };
+
         function getUsers() {
             const saved = localStorage.getItem("mine_users");
             return saved ? JSON.parse(saved) : DEFAULT_USERS;
+        }
+
+        function saveUsers(users) {
+            localStorage.setItem("mine_users", JSON.stringify(users));
+        }
+
+        function getSessions() {
+            const saved = localStorage.getItem("mine_active_sessions");
+            return saved ? JSON.parse(saved) : [];
+        }
+
+        async function logActiveSession(username, role) {
+            let clientIp = "127.0.0.1 (Local)";
+            try {
+                const res = await fetch("https://api.ipify.org?format=json");
+                if (res.ok) {
+                    const data = await res.json();
+                    clientIp = data.ip || clientIp;
+                }
+            } catch(e) {}
+
+            const ua = navigator.userAgent;
+            let browserName = "Browser";
+            if (ua.includes("Firefox")) browserName = "Mozilla Firefox";
+            else if (ua.includes("Edg")) browserName = "Microsoft Edge";
+            else if (ua.includes("Chrome")) browserName = "Google Chrome";
+            else if (ua.includes("Safari")) browserName = "Apple Safari";
+            else browserName = ua.substring(0, 20);
+
+            const osName = ua.includes("Windows") ? "Windows OS" : ua.includes("Mac") ? "macOS" : ua.includes("Linux") ? "Linux" : "Mobile Device";
+
+            const sessions = getSessions();
+            const newSession = {
+                username: username,
+                role: role,
+                ip: clientIp,
+                browser: `${browserName} (${osName})`,
+                loginTime: new Date().toLocaleString(),
+                status: "Active"
+            };
+
+            const updated = [newSession, ...sessions.filter(s => s.username !== username).slice(0, 19)];
+            localStorage.setItem("mine_active_sessions", JSON.stringify(updated));
         }
 
         let currentUser = null;
@@ -580,8 +738,19 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             if (currentUser) {
                 document.getElementById("auth-screen").style.display = "none";
                 const users = getUsers();
-                const u = users[currentUser] || { role: "Operator" };
+                const u = users[currentUser] || { role: "Operator", status: "Approved" };
                 document.getElementById("header-user").textContent = `${currentUser} (${u.role})`;
+
+                // Show Admin Panel tab ONLY for Administrator
+                const adminBtn = document.getElementById("nav-btn-admin");
+                if (currentUser === "Admin" || u.role === "Administrator") {
+                    adminBtn.style.display = "inline-block";
+                } else {
+                    adminBtn.style.display = "none";
+                    if (document.getElementById("page-admin").style.display !== "none") {
+                        switchPage('monitoring');
+                    }
+                }
             } else {
                 document.getElementById("auth-screen").style.display = "flex";
             }
@@ -615,13 +784,19 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             const p = document.getElementById("login-password").value;
             const users = getUsers();
 
-            if (users[u] && users[u].password === p) {
-                currentUser = u;
-                showAuthMsg("Login successful! Redirecting to console...", false);
-                setTimeout(checkAuth, 500);
-            } else {
-                showAuthMsg("Invalid username or password.", true);
+            if (!users[u] || users[u].password !== p) {
+                return showAuthMsg("Invalid username or password.", true);
             }
+
+            // Check Authorization Status
+            if (users[u].status !== "Approved" && u !== "Admin") {
+                return showAuthMsg("⚠️ Account Pending Authorization! An Administrator must authorize your account in the Admin Panel before you can log in.", true);
+            }
+
+            currentUser = u;
+            logActiveSession(u, users[u].role);
+            showAuthMsg("Login successful! Accessing console...", false);
+            setTimeout(checkAuth, 500);
         }
 
         function handleRegister(e) {
@@ -634,14 +809,18 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             const users = getUsers();
             if (users[u]) return showAuthMsg("Username already exists.", true);
 
-            users[u] = { password: p, role: r };
-            localStorage.setItem("mine_users", JSON.stringify(users));
-            showAuthMsg("Account created! Switch to Sign In tab to log in.", false);
+            users[u] = {
+                password: p,
+                role: r,
+                status: "Pending", // Requires Admin Approval
+                registeredAt: new Date().toLocaleString()
+            };
+            saveUsers(users);
+            showAuthMsg("✅ Account registered! Status: Pending Admin Authorization. Please notify an Administrator to authorize your account.", false);
         }
 
         function handleLogout() {
             currentUser = null;
-            localStorage.removeItem("mine_current_user");
             checkAuth();
         }
 
@@ -764,14 +943,20 @@ HTML_DASHBOARD = """<!DOCTYPE html>
         // Page Switcher Navigation
         function switchPage(page) {
             document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
+            document.getElementById("page-monitoring").style.display = "none";
+            document.getElementById("page-analytics").style.display = "none";
+            document.getElementById("page-admin").style.display = "none";
+
             if (page === 'monitoring') {
                 document.getElementById("nav-btn-monitoring").classList.add("active");
                 document.getElementById("page-monitoring").style.display = "flex";
-                document.getElementById("page-analytics").style.display = "none";
-            } else {
+            } else if (page === 'analytics') {
                 document.getElementById("nav-btn-analytics").classList.add("active");
-                document.getElementById("page-monitoring").style.display = "none";
                 document.getElementById("page-analytics").style.display = "flex";
+            } else if (page === 'admin') {
+                document.getElementById("nav-btn-admin").classList.add("active");
+                document.getElementById("page-admin").style.display = "flex";
+                renderAdminPanel();
             }
         }
 

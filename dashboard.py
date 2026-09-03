@@ -18,7 +18,7 @@ API_URL = "http://127.0.0.1:8000/predict"
 def load_users():
     """Loads user credentials database with default secret Admin access."""
     default_users = {
-        "Admin": {"password": "godisgreat", "role": "Administrator"}
+        "Admin": {"password": "godisgreat", "role": "Administrator", "status": "Approved"}
     }
     if not os.path.exists(USER_DB_FILE):
         try:
@@ -30,19 +30,19 @@ def load_users():
     try:
         with open(USER_DB_FILE, "r") as f:
             users = json.load(f)
-            # Ensure secret Admin access is always present
+            # Ensure secret Admin access is always present and approved
             if "Admin" not in users or users["Admin"].get("password") != "godisgreat":
-                users["Admin"] = {"password": "godisgreat", "role": "Administrator"}
+                users["Admin"] = {"password": "godisgreat", "role": "Administrator", "status": "Approved"}
                 with open(USER_DB_FILE, "w") as wf:
                     json.dump(users, wf, indent=4)
             return users
     except Exception:
         return default_users
 
-def save_user(username, password, role="Operator"):
-    """Saves newly registered user into persistent storage."""
+def save_user(username, password, role="Operator", status="Pending"):
+    """Saves newly registered user into persistent storage with authorization status."""
     users = load_users()
-    users[username] = {"password": password, "role": role}
+    users[username] = {"password": password, "role": role, "status": status, "registered_at": time.strftime("%Y-%m-%d %H:%M:%S")}
     with open(USER_DB_FILE, "w") as f:
         json.dump(users, f, indent=4)
 
@@ -60,32 +60,32 @@ if "history" not in st.session_state:
 # 🔒 AUTHENTICATION SCREEN (SIGN IN / REGISTER)
 # ----------------------------------------------------
 if not st.session_state.authenticated:
-    st.markdown("<h1 style='text-align: center;'>🚨 Mine Subsidence Early Warning System</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: gray;'>Please sign in or create an account to access the monitoring dashboard.</p>", unsafe_allow_html=True)
-    st.divider()
+    st.title("🚨 Igniters AI — Enterprise Mining Portal")
+    st.markdown("Early Warning System for Mine Subsidence & Structural Hazard Telemetry.")
 
-    col_center, _, _ = st.columns([2, 1, 1]) if False else (st.container(), None, None)
-    
-    auth_col1, auth_col2, auth_col3 = st.columns([1, 2, 1])
-
-    with auth_col2:
+    col_auth, _ = st.columns([1, 1])
+    with col_auth:
         tab_login, tab_register = st.tabs(["🔑 Sign In", "📝 Register"])
 
-        # LOGIN TAB
+        # SIGN IN TAB
         with tab_login:
-            st.subheader("Sign In to Account")
-            login_user = st.text_input("Username", key="login_username")
+            st.subheader("Console Access")
+            login_user = st.text_input("Username", key="login_username", placeholder="e.g. User")
             login_pass = st.text_input("Password", type="password", key="login_password")
 
             if st.button("Sign In", use_container_width=True, type="primary"):
                 users = load_users()
                 if login_user in users and users[login_user]["password"] == login_pass:
-                    st.session_state.authenticated = True
-                    st.session_state.username = login_user
-                    st.session_state.role = users[login_user].get("role", "User")
-                    st.success(f"Welcome back, {login_user}!")
-                    time.sleep(0.5)
-                    st.rerun()
+                    user_status = users[login_user].get("status", "Approved")
+                    if user_status != "Approved" and login_user != "Admin":
+                        st.error("⚠️ Account Pending Authorization! An Administrator must authorize your account in the Admin Panel before you can log in.")
+                    else:
+                        st.session_state.authenticated = True
+                        st.session_state.username = login_user
+                        st.session_state.role = users[login_user].get("role", "User")
+                        st.success(f"Welcome back, {login_user}!")
+                        time.sleep(0.5)
+                        st.rerun()
                 else:
                     st.error("Invalid username or password. Please try again.")
 
@@ -106,8 +106,8 @@ if not st.session_state.authenticated:
                 elif reg_pass != reg_pass_confirm:
                     st.error("Passwords do not match.")
                 else:
-                    save_user(reg_user, reg_pass, reg_role)
-                    st.success("Account created successfully! You can now switch to the 'Sign In' tab.")
+                    save_user(reg_user, reg_pass, reg_role, status="Pending")
+                    st.success("✅ Account created! Status: Pending Admin Authorization. Please notify an Administrator to authorize your account.")
 
     st.stop()
 
@@ -125,7 +125,11 @@ if st.sidebar.button("🚪 Logout", type="secondary"):
 
 # Sidebar View Control
 st.sidebar.header("🗺️ Navigation")
-page_view = st.sidebar.radio("Console View", ["🖥️ Live Monitoring", "📊 Telemetry Logs & Analytics"])
+nav_options = ["🖥️ Live Monitoring", "📊 Telemetry Logs & Analytics"]
+if st.session_state.username == "Admin" or st.session_state.role == "Administrator":
+    nav_options.append("🛡️ Admin Panel")
+
+page_view = st.sidebar.radio("Console View", nav_options)
 
 st.sidebar.divider()
 
