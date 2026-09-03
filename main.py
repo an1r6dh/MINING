@@ -121,11 +121,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 
         h1, h2, h3, h4, .brand-font { font-family: 'Montserrat', sans-serif; }
 
-        /* Top Notification Bar */
-        .top-bar { background: linear-gradient(90deg, #1e3a8a, #0284c7); color: #fff; text-align: center; padding: 0.4rem 1rem; font-size: 0.8rem; font-weight: 600; letter-spacing: 0.05em; display: flex; justify-content: center; align-items: center; gap: 0.5rem; }
-        .top-bar span.pulse-dot { width: 8px; height: 8px; background: #4ade80; border-radius: 50%; display: inline-block; animation: pulse 1.5s infinite; }
 
-        @keyframes pulse { 0% { opacity: 0.3; transform: scale(0.9); } 50% { opacity: 1; transform: scale(1.2); } 100% { opacity: 0.3; transform: scale(0.9); } }
 
         /* Navigation Header */
         header { background: var(--header-bg); backdrop-filter: blur(16px); border-bottom: 1px solid var(--border-color); padding: 1rem 2.5rem; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; transition: background 0.3s; }
@@ -238,10 +234,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 </head>
 <body>
 
-    <!-- TOP ANNOUNCEMENT BAR -->
-    <div class="top-bar">
-        <span class="pulse-dot"></span> IGNITERS AI ACTIVE — REAL-TIME SUBSIDENCE & HAZARD MONITORING SYSTEM (SIH 26025)
-    </div>
+
 
     <!-- AUTHENTICATION OVERLAY -->
     <div id="auth-screen">
