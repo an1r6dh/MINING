@@ -70,7 +70,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Megam Mine-Guard AI — Subsidence & Hazard Early Warning System</title>
+    <title>Igniters AI — Subsidence & Hazard Early Warning System</title>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -240,14 +240,14 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 
     <!-- TOP ANNOUNCEMENT BAR -->
     <div class="top-bar">
-        <span class="pulse-dot"></span> MEGAM MINE-GUARD AI ACTIVE — REAL-TIME SUBSIDENCE & HAZARD MONITORING SYSTEM (SIH 26025)
+        <span class="pulse-dot"></span> IGNITERS AI ACTIVE — REAL-TIME SUBSIDENCE & HAZARD MONITORING SYSTEM (SIH 26025)
     </div>
 
     <!-- AUTHENTICATION OVERLAY -->
     <div id="auth-screen">
         <div class="auth-card">
             <div class="auth-header">
-                <h2>🚨 MEGAM MINE-GUARD AI</h2>
+                <h2>🚨 IGNITERS AI</h2>
                 <p>Enterprise Early Warning System for Mine Subsidence</p>
             </div>
             
@@ -302,7 +302,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
     <header>
         <div class="logo-container">
             <div class="logo-icon">🚨</div>
-            <div class="logo-text">MEGAM <span>MINE-GUARD AI</span></div>
+            <div class="logo-text">IGNITERS <span>AI</span></div>
         </div>
         <div class="nav-actions">
             <button class="btn-theme-toggle" onclick="toggleTheme()">
@@ -454,7 +454,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 
     <!-- FOOTER -->
     <footer>
-        <div>© 2026 <strong>Megam Mine-Guard AI</strong> — SIH Project 26025. All Rights Reserved.</div>
+        <div>© 2026 <strong>Igniters AI</strong> — SIH Project 26025. All Rights Reserved.</div>
         <div>Engineered for Deep Tech Mine Safety & Digital Transformation</div>
     </footer>
 
