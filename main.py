@@ -196,8 +196,6 @@ HTML_DASHBOARD = """<!DOCTYPE html>
         .form-group input:focus, .form-group select:focus { outline: none; border-color: var(--primary-accent); box-shadow: 0 0 10px var(--primary-glow); }
         .btn-submit { width: 100%; padding: 0.85rem; background: linear-gradient(135deg, #0284c7, #38bdf8); color: #ffffff; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 1rem; transition: all 0.2s; margin-top: 0.5rem; }
         .btn-submit:hover { transform: translateY(-1px); box-shadow: 0 10px 20px -5px var(--primary-glow); }
-        
-        .admin-hint { background: rgba(56, 189, 248, 0.08); border: 1px dashed rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 0.75rem; margin-top: 1.2rem; font-size: 0.8rem; color: var(--primary-accent); text-align: center; }
 
         .auth-msg { margin-top: 1rem; padding: 0.75rem; border-radius: 8px; font-size: 0.85rem; display: none; text-align: center; font-weight: 600; }
         .auth-msg.error { background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
@@ -323,10 +321,6 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 </div>
                 <button type="submit" class="btn-submit">Register Account</button>
             </form>
-
-            <div class="admin-hint">
-                💡 <strong>Administrator Access:</strong> User: <code>Admin</code> | Pass: <code>godisgreat</code>
-            </div>
 
             <div id="auth-msg" class="auth-msg"></div>
         </div>
