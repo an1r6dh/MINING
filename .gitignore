@@ -18,6 +18,8 @@ env/
 data/
 sensor_data_25m.csv
 sensor_data_25M.csv
+sensor_data.csv
 *.parquet
+
 
 
