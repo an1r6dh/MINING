@@ -667,7 +667,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                     <input type="range" id="slider-vib" min="0" max="6" step="0.01" value="0.10" oninput="updateManualVal()">
                 </div>
                 <div class="slider-group">
-                    <label>Filtered Strain: <span id="val-manual-strain">0.02</span> mm/m</label>
+                    <label>Ultrasonic Displacement: <span id="val-manual-strain">0.02</span> mm</label>
                     <input type="range" id="slider-strain" min="0" max="8" step="0.01" value="0.02" oninput="updateManualVal()">
                 </div>
             </div>
@@ -690,10 +690,10 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 </div>
                 <div class="metric-card">
                     <div class="metric-header">
-                        <span class="metric-title">Filtered Strain</span>
+                        <span class="metric-title">Ultrasonic Displacement</span>
                     </div>
                     <div class="metric-value" id="val-strain">0.0120</div>
-                    <div class="metric-footer">mm/m — Micro-Displacement</div>
+                    <div class="metric-footer">mm (Micro-Displacement / Strain)</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-header">
@@ -799,7 +799,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                                     <th>Node ID</th>
                                     <th>Tilt (deg/m)</th>
                                     <th>Vibration (g)</th>
-                                    <th>Strain (mm/m)</th>
+                                    <th>Displacement (mm)</th>
                                     <th>Battery Power</th>
                                     <th>Risk Status</th>
                                 </tr>

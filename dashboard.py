@@ -174,7 +174,7 @@ sim_mode = st.sidebar.selectbox(
 if sim_mode == "Manual Input":
     manual_tilt = st.sidebar.slider("Filtered Tilt (deg/m)", 0.0, 15.0, 0.05, step=0.01)
     manual_vib = st.sidebar.slider("Filtered Vibration (g)", 0.0, 6.0, 0.10, step=0.01)
-    manual_strain = st.sidebar.slider("Filtered Strain (mm/m)", 0.0, 8.0, 0.02, step=0.01)
+    manual_strain = st.sidebar.slider("Ultrasonic Displacement (mm / Strain)", 0.0, 8.0, 0.02, step=0.01)
     auto_stream = False
     send_manual = st.sidebar.button("Send Telemetry Reading")
 else:
