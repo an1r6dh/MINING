@@ -1,0 +1,7 @@
+{
+    "Admin": {
+        "password": "godisgreat",
+        "role": "Administrator",
+        "status": "Approved"
+    }
+}

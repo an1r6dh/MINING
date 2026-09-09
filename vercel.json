@@ -1,0 +1,24 @@
+{
+  "rewrites": [
+    {
+      "source": "/predict",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/api/telemetry",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/health",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/gpu_status",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/api/gpu_status",
+      "destination": "/api/index.py"
+    }
+  ]
+}

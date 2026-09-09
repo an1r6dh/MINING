@@ -1,0 +1,23 @@
+# Python bytecode / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+
+# Large Satellite Data
+data/
+sensor_data_25m.csv
+sensor_data_25M.csv
+*.parquet
+
+
