@@ -659,15 +659,15 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             <!-- MANUAL SLIDERS CONTAINER (Visible only in Manual mode) -->
             <div id="manual-controls">
                 <div class="slider-group">
-                    <label>Filtered Tilt: <span id="val-manual-tilt">0.05</span> deg/m</label>
+                    <label>Filtered Tilt: <span id="val-manual-tilt"><span class="badge SAFE" style="font-size: 0.72rem; padding: 0.1rem 0.4rem;">SAFE</span></span></label>
                     <input type="range" id="slider-tilt" min="0" max="15" step="0.01" value="0.05" oninput="updateManualVal()">
                 </div>
                 <div class="slider-group">
-                    <label>Filtered Vibration: <span id="val-manual-vib">0.10</span> g</label>
+                    <label>Filtered Vibration: <span id="val-manual-vib"><span class="badge SAFE" style="font-size: 0.72rem; padding: 0.1rem 0.4rem;">SAFE</span></span></label>
                     <input type="range" id="slider-vib" min="0" max="6" step="0.01" value="0.10" oninput="updateManualVal()">
                 </div>
                 <div class="slider-group">
-                    <label>Filtered Displacement: <span id="val-manual-strain">0.02</span> mm</label>
+                    <label>Filtered Displacement: <span id="val-manual-strain"><span class="badge SAFE" style="font-size: 0.72rem; padding: 0.1rem 0.4rem;">SAFE</span></span></label>
                     <input type="range" id="slider-strain" min="0" max="8" step="0.01" value="0.02" oninput="updateManualVal()">
                 </div>
             </div>
@@ -678,21 +678,21 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                     <div class="metric-header">
                         <span class="metric-title">Filtered Tilt</span>
                     </div>
-                    <div class="metric-value" id="val-tilt">0.0245</div>
+                    <div class="metric-value" id="val-tilt"><span class="badge SAFE" style="font-size: 1.05rem; padding: 0.35rem 0.9rem; border-radius: 6px;">SAFE</span></div>
                     <div class="metric-footer">Deg/m — Structural Gradient</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-header">
                         <span class="metric-title">Filtered Vibration</span>
                     </div>
-                    <div class="metric-value" id="val-vib">0.1280</div>
+                    <div class="metric-value" id="val-vib"><span class="badge SAFE" style="font-size: 1.05rem; padding: 0.35rem 0.9rem; border-radius: 6px;">SAFE</span></div>
                     <div class="metric-footer">g — Seismic Acceleration</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-header">
                         <span class="metric-title">Filtered Displacement</span>
                     </div>
-                    <div class="metric-value" id="val-strain">0.0120</div>
+                    <div class="metric-value" id="val-strain"><span class="badge SAFE" style="font-size: 1.05rem; padding: 0.35rem 0.9rem; border-radius: 6px;">SAFE</span></div>
                     <div class="metric-footer">mm — Micro-Displacement</div>
                 </div>
                 <div class="metric-card">
@@ -797,9 +797,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                                 <tr>
                                     <th>Timestamp</th>
                                     <th>Node ID</th>
-                                    <th>Tilt (deg/m)</th>
-                                    <th>Vibration (g)</th>
-                                    <th>Displacement (mm)</th>
+                                    <th>Tilt Status</th>
+                                    <th>Vibration Status</th>
+                                    <th>Displacement Status</th>
                                     <th>Battery Power</th>
                                     <th>Risk Status</th>
                                 </tr>
@@ -1866,9 +1866,20 @@ HTML_DASHBOARD = """<!DOCTYPE html>
         }
 
         function updateManualVal() {
-            document.getElementById("val-manual-tilt").textContent = document.getElementById("slider-tilt").value;
-            document.getElementById("val-manual-vib").textContent = document.getElementById("slider-vib").value;
-            document.getElementById("val-manual-strain").textContent = document.getElementById("slider-strain").value;
+            function getManualBadge(val, warnThresh, dangerThresh) {
+                if (val >= dangerThresh) return `<span class="badge DANGER" style="font-size: 0.72rem; padding: 0.1rem 0.4rem;">DANGER</span>`;
+                if (val >= warnThresh) return `<span class="badge WARNING" style="font-size: 0.72rem; padding: 0.1rem 0.4rem;">WARNING</span>`;
+                return `<span class="badge SAFE" style="font-size: 0.72rem; padding: 0.1rem 0.4rem;">SAFE</span>`;
+            }
+            const t = parseFloat(document.getElementById("slider-tilt").value);
+            const v = parseFloat(document.getElementById("slider-vib").value);
+            const s = parseFloat(document.getElementById("slider-strain").value);
+            const elMT = document.getElementById("val-manual-tilt");
+            if (elMT) elMT.innerHTML = getManualBadge(t, 0.4, 4.0);
+            const elMV = document.getElementById("val-manual-vib");
+            if (elMV) elMV.innerHTML = getManualBadge(v, 0.35, 1.5);
+            const elMS = document.getElementById("val-manual-strain");
+            if (elMS) elMS.innerHTML = getManualBadge(s, 0.4, 2.0);
             updateTelemetry();
         }
 
@@ -2332,10 +2343,10 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                             <strong style="color: ${bat.color}; font-size: 0.82rem;">${bat.icon} ${bat.text}</strong>
                         </div>
 
-                        <div style="background: rgba(255,255,255,0.05); padding: 0.5rem; border-radius: 6px; font-size: 0.78rem; display: flex; flex-direction: column; gap: 0.3rem;">
-                            <div>Tilt: <strong style="color: #38bdf8;">${node.tilt.toFixed(4)} deg/m</strong></div>
-                            <div>Vibration: <strong style="color: #f59e0b;">${node.vib.toFixed(4)} g</strong></div>
-                            <div>Strain: <strong style="color: #ef4444;">${node.strain.toFixed(4)} mm/m</strong></div>
+                        <div style="background: rgba(255,255,255,0.05); padding: 0.5rem; border-radius: 6px; font-size: 0.78rem; display: flex; flex-direction: column; gap: 0.35rem;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;"><span>Tilt Status:</span><span class="badge ${node.tilt >= 4.0 ? 'DANGER' : (node.tilt >= 0.4 ? 'WARNING' : 'SAFE')}" style="font-size: 0.7rem; padding: 0.1rem 0.45rem;">${node.tilt >= 4.0 ? 'DANGER' : (node.tilt >= 0.4 ? 'WARNING' : 'SAFE')}</span></div>
+                            <div style="display: flex; justify-content: space-between; align-items: center;"><span>Vibration Status:</span><span class="badge ${node.vib >= 1.5 ? 'DANGER' : (node.vib >= 0.35 ? 'WARNING' : 'SAFE')}" style="font-size: 0.7rem; padding: 0.1rem 0.45rem;">${node.vib >= 1.5 ? 'DANGER' : (node.vib >= 0.35 ? 'WARNING' : 'SAFE')}</span></div>
+                            <div style="display: flex; justify-content: space-between; align-items: center;"><span>Displacement Status:</span><span class="badge ${node.strain >= 2.0 ? 'DANGER' : (node.strain >= 0.4 ? 'WARNING' : 'SAFE')}" style="font-size: 0.7rem; padding: 0.1rem 0.45rem;">${node.strain >= 2.0 ? 'DANGER' : (node.strain >= 0.4 ? 'WARNING' : 'SAFE')}</span></div>
                         </div>
 
                         <div style="margin-top: 0.6rem; text-align: center;">
@@ -2424,10 +2435,22 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 
             const timeStr = getFormattedTimestamp(0);
 
-            // Metrics Update
-            document.getElementById("val-tilt").textContent = payload.filtered_tilt.toFixed(4);
-            document.getElementById("val-vib").textContent = payload.filtered_vibration.toFixed(4);
-            document.getElementById("val-strain").textContent = payload.filtered_strain.toFixed(4);
+            // Metrics Update (Display Clean Status Badges instead of Garbage Numbers)
+            function getMetricBadge(val, warnThresh, dangerThresh) {
+                if (val >= dangerThresh) {
+                    return `<span class="badge DANGER" style="font-size: 1.05rem; padding: 0.35rem 0.9rem; border-radius: 6px;">DANGER</span>`;
+                } else if (val >= warnThresh) {
+                    return `<span class="badge WARNING" style="font-size: 1.05rem; padding: 0.35rem 0.9rem; border-radius: 6px;">WARNING</span>`;
+                }
+                return `<span class="badge SAFE" style="font-size: 1.05rem; padding: 0.35rem 0.9rem; border-radius: 6px;">SAFE</span>`;
+            }
+
+            const elTilt = document.getElementById("val-tilt");
+            if (elTilt) elTilt.innerHTML = getMetricBadge(payload.filtered_tilt, 0.4, 4.0);
+            const elVib = document.getElementById("val-vib");
+            if (elVib) elVib.innerHTML = getMetricBadge(payload.filtered_vibration, 0.35, 1.5);
+            const elStrain = document.getElementById("val-strain");
+            if (elStrain) elStrain.innerHTML = getMetricBadge(payload.filtered_strain, 0.4, 2.0);
             document.getElementById("last-updated").textContent = "Last Sync: " + timeStr;
 
             if (status === "SAFE") safeCount++;
@@ -2585,9 +2608,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 <tr>
                     <td style="font-family: monospace; font-weight: 600; color: var(--text-primary);">${r.time}</td>
                     <td><span style="font-family: monospace; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; ${nodeBadgeStyle}">${r.node_id || selectedNodeId}</span></td>
-                    <td>${r.tilt.toFixed(4)}</td>
-                    <td>${r.vib.toFixed(4)}</td>
-                    <td>${r.strain.toFixed(4)}</td>
+                    <td><span class="badge ${r.tilt >= 4.0 ? 'DANGER' : (r.tilt >= 0.4 ? 'WARNING' : 'SAFE')}" style="font-size: 0.72rem; padding: 0.1rem 0.45rem;">${r.tilt >= 4.0 ? 'DANGER' : (r.tilt >= 0.4 ? 'WARNING' : 'SAFE')}</span></td>
+                    <td><span class="badge ${r.vib >= 1.5 ? 'DANGER' : (r.vib >= 0.35 ? 'WARNING' : 'SAFE')}" style="font-size: 0.72rem; padding: 0.1rem 0.45rem;">${r.vib >= 1.5 ? 'DANGER' : (r.vib >= 0.35 ? 'WARNING' : 'SAFE')}</span></td>
+                    <td><span class="badge ${r.strain >= 2.0 ? 'DANGER' : (r.strain >= 0.4 ? 'WARNING' : 'SAFE')}" style="font-size: 0.72rem; padding: 0.1rem 0.45rem;">${r.strain >= 2.0 ? 'DANGER' : (r.strain >= 0.4 ? 'WARNING' : 'SAFE')}</span></td>
                     <td><span style="font-weight: 700; color: ${bInfo.color};">${displayBat}</span></td>
                     <td><span class="badge ${r.status}">${r.status}</span></td>
                 </tr>

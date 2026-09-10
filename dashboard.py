@@ -316,9 +316,13 @@ if page_view == "🖥️ Live Monitoring":
 
     # Metrics Cards
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric(label="Filtered Tilt", value=f"{tilt_val:.4f}", delta="Deg/m")
-    c2.metric(label="Filtered Vibration", value=f"{vib_val:.4f}", delta="g")
-    c3.metric(label="Filtered Strain", value=f"{strain_val:.4f}", delta="mm/m")
+    tilt_status = "DANGER 🔴" if tilt_val >= 4.0 else ("WARNING 🟡" if tilt_val >= 0.4 else "SAFE 🟢")
+    vib_status = "DANGER 🔴" if vib_val >= 1.5 else ("WARNING 🟡" if vib_val >= 0.35 else "SAFE 🟢")
+    strain_status = "DANGER 🔴" if strain_val >= 2.0 else ("WARNING 🟡" if strain_val >= 0.4 else "SAFE 🟢")
+
+    c1.metric(label="Filtered Tilt", value=tilt_status)
+    c2.metric(label="Filtered Vibration", value=vib_status)
+    c3.metric(label="Filtered Displacement", value=strain_status)
 
     if not df.empty:
         warn_ct = len(df[df["Status"] == "WARNING"])
