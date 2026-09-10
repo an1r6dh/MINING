@@ -320,9 +320,9 @@ if page_view == "🖥️ Live Monitoring":
     vib_status = "DANGER 🔴" if vib_val >= 1.5 else ("WARNING 🟡" if vib_val >= 0.35 else "SAFE 🟢")
     strain_status = "DANGER 🔴" if strain_val >= 2.0 else ("WARNING 🟡" if strain_val >= 0.4 else "SAFE 🟢")
 
-    c1.metric(label="Filtered Tilt", value=tilt_status)
-    c2.metric(label="Filtered Vibration", value=vib_status)
-    c3.metric(label="Filtered Displacement", value=strain_status)
+    c1.metric(label="Filtered Tilt", value="0.0", delta="0.0 deg/m")
+    c2.metric(label="Filtered Vibration", value="0.0", delta="0.0 g")
+    c3.metric(label="Filtered Displacement", value="0.0", delta="0.0 mm")
 
     if not df.empty:
         warn_ct = len(df[df["Status"] == "WARNING"])
