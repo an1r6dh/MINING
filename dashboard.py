@@ -172,9 +172,9 @@ sim_mode = st.sidebar.selectbox(
 )
 
 if sim_mode == "Manual Input":
-    manual_tilt = st.sidebar.slider("Filtered Tilt (deg/m)", 0.0, 15.0, 0.05, step=0.01)
-    manual_vib = st.sidebar.slider("Filtered Vibration (g)", 0.0, 6.0, 0.10, step=0.01)
-    manual_strain = st.sidebar.slider("Filtered Displacement (mm)", 0.0, 8.0, 0.02, step=0.01)
+    manual_tilt = st.sidebar.slider("Filtered Tilt (deg/m)", 0.0, 15.0, 0.0, step=0.01)
+    manual_vib = st.sidebar.slider("Filtered Vibration (g)", 0.0, 6.0, 0.0, step=0.01)
+    manual_strain = st.sidebar.slider("Filtered Displacement (mm)", 0.0, 8.0, 0.0, step=0.01)
     auto_stream = False
     send_manual = st.sidebar.button("Send Telemetry Reading")
 else:
@@ -188,9 +188,9 @@ if st.sidebar.button("Clear Log History"):
 
 def get_telemetry_payload(mode):
     if mode == "Normal (Safe)":
-        tilt = round(random.uniform(0.001, 0.30), 4)
-        vib = round(random.uniform(0.01, 0.30), 4)
-        strain = round(random.uniform(0.001, 0.20), 4)
+        tilt = 0.0
+        vib = 0.0
+        strain = 0.0
     elif mode == "Drift (Warning)":
         tilt = round(random.uniform(0.50, 3.50), 4)
         vib = round(random.uniform(0.35, 1.20), 4)

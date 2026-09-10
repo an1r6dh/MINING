@@ -1026,9 +1026,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 "relLng": 0.0018,
                 "active": true,
                 "type": "Tilt & Strain Sensor",
-                "tilt": 0.024,
-                "vib": 0.128,
-                "strain": 0.012,
+                "tilt": 0.0,
+                "vib": 0.0,
+                "strain": 0.0,
                 "battery": 94,
                 "status": "SAFE"
             },
@@ -1039,9 +1039,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 "relLng": 0.0020,
                 "active": true,
                 "type": "Multi-Axial Strain",
-                "tilt": 0.18,
-                "vib": 0.11,
-                "strain": 0.09,
+                "tilt": 0.0,
+                "vib": 0.0,
+                "strain": 0.0,
                 "battery": 87,
                 "status": "SAFE"
             },
@@ -1052,9 +1052,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 "relLng": -0.0012,
                 "active": true,
                 "type": "Digital Inclinometer",
-                "tilt": 1.25,
-                "vib": 0.62,
-                "strain": 0.88,
+                "tilt": 0.0,
+                "vib": 0.0,
+                "strain": 0.0,
                 "battery": 68,
                 "status": "WARNING"
             },
@@ -1065,9 +1065,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 "relLng": -0.0010,
                 "active": true,
                 "type": "Tri-Axial Seismic",
-                "tilt": 0.05,
-                "vib": 0.14,
-                "strain": 0.03,
+                "tilt": 0.0,
+                "vib": 0.0,
+                "strain": 0.0,
                 "battery": 91,
                 "status": "SAFE"
             },
@@ -1119,9 +1119,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 "relLng": 0.001,
                 "active": true,
                 "type": "Wall Displacement",
-                "tilt": 0.03,
-                "vib": 0.08,
-                "strain": 0.02,
+                "tilt": 0.0,
+                "vib": 0.0,
+                "strain": 0.0,
                 "battery": 92,
                 "status": "SAFE"
             },
@@ -1132,9 +1132,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 "relLng": 0.0018,
                 "active": true,
                 "type": "Bench Inclinometer",
-                "tilt": 0.42,
-                "vib": 0.25,
-                "strain": 0.31,
+                "tilt": 0.0,
+                "vib": 0.0,
+                "strain": 0.0,
                 "battery": 85,
                 "status": "SAFE"
             },
@@ -1145,9 +1145,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 "relLng": -0.0025,
                 "active": true,
                 "type": "Vibration Acceleration",
-                "tilt": 5.2,
-                "vib": 2.1,
-                "strain": 3.4,
+                "tilt": 0.0,
+                "vib": 0.0,
+                "strain": 0.0,
                 "battery": 38,
                 "status": "DANGER"
             },
@@ -1158,9 +1158,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 "relLng": -0.0012,
                 "active": true,
                 "type": "Dump Slope Radar",
-                "tilt": 1.15,
-                "vib": 0.58,
-                "strain": 0.76,
+                "tilt": 0.0,
+                "vib": 0.0,
+                "strain": 0.0,
                 "battery": 74,
                 "status": "WARNING"
             },
@@ -1212,9 +1212,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 "relLng": 0.0012,
                 "active": true,
                 "type": "Roof Extensometer",
-                "tilt": 0.12,
-                "vib": 0.15,
-                "strain": 0.08,
+                "tilt": 0.0,
+                "vib": 0.0,
+                "strain": 0.0,
                 "battery": 96,
                 "status": "SAFE"
             },
@@ -1225,9 +1225,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 "relLng": -0.0015,
                 "active": true,
                 "type": "Pillar Stress Tensor",
-                "tilt": 2.45,
-                "vib": 0.92,
-                "strain": 1.15,
+                "tilt": 0.0,
+                "vib": 0.0,
+                "strain": 0.0,
                 "battery": 79,
                 "status": "WARNING"
             },
@@ -1238,9 +1238,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 "relLng": -0.002,
                 "active": true,
                 "type": "Micro-Seismic Array",
-                "tilt": 0.04,
-                "vib": 0.09,
-                "strain": 0.02,
+                "tilt": 0.0,
+                "vib": 0.0,
+                "strain": 0.0,
                 "battery": 88,
                 "status": "SAFE"
             },
@@ -1251,9 +1251,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 "relLng": 0.002,
                 "active": true,
                 "type": "Strata Extensometer",
-                "tilt": 0.09,
-                "vib": 0.14,
-                "strain": 0.05,
+                "tilt": 0.0,
+                "vib": 0.0,
+                "strain": 0.0,
                 "battery": 91,
                 "status": "SAFE"
             },
@@ -1264,9 +1264,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 "relLng": 0.0015,
                 "active": true,
                 "type": "Convergence Sensor",
-                "tilt": 1.35,
-                "vib": 0.65,
-                "strain": 0.85,
+                "tilt": 0.0,
+                "vib": 0.0,
+                "strain": 0.0,
                 "battery": 72,
                 "status": "WARNING"
             }
@@ -1313,9 +1313,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 "relLng": 0.0008,
                 "active": true,
                 "type": "Deep Rock Strain",
-                "tilt": 0.01,
-                "vib": 0.04,
-                "strain": 0.01,
+                "tilt": 0.0,
+                "vib": 0.0,
+                "strain": 0.0,
                 "battery": 98,
                 "status": "SAFE"
             },
@@ -1326,9 +1326,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 "relLng": 0.0015,
                 "active": true,
                 "type": "Slope Inclinometer",
-                "tilt": 0.28,
-                "vib": 0.19,
-                "strain": 0.14,
+                "tilt": 0.0,
+                "vib": 0.0,
+                "strain": 0.0,
                 "battery": 90,
                 "status": "SAFE"
             },
@@ -1339,9 +1339,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 "relLng": -0.0018,
                 "active": true,
                 "type": "Ground Displacement",
-                "tilt": 6.8,
-                "vib": 2.9,
-                "strain": 4.5,
+                "tilt": 0.0,
+                "vib": 0.0,
+                "strain": 0.0,
                 "battery": 24,
                 "status": "DANGER"
             },
@@ -1352,9 +1352,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 "relLng": -0.0025,
                 "active": true,
                 "type": "Vibration Sensor",
-                "tilt": 1.85,
-                "vib": 0.78,
-                "strain": 0.92,
+                "tilt": 0.0,
+                "vib": 0.0,
+                "strain": 0.0,
                 "battery": 72,
                 "status": "WARNING"
             },
@@ -1992,9 +1992,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 const ss = String(recordTime.getSeconds()).padStart(2, '0');
                 const timeStr = `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
 
-                const baseTilt = +(0.02 + (Math.random() * 0.04)).toFixed(4);
-                const baseVib = +(0.11 + (Math.random() * 0.03)).toFixed(4);
-                const baseStrain = +(0.01 + (Math.random() * 0.02)).toFixed(4);
+                const baseTilt = 0.0;
+                const baseVib = 0.0;
+                const baseStrain = 0.0;
                 buf.push({
                     time: timeStr,
                     node_id: nodeId,
@@ -2458,9 +2458,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                     trendChart.data.datasets[2].data.shift();
                 }
                 trendChart.data.labels.push(timeStr);
-                trendChart.data.datasets[0].data.push(payload.filtered_tilt);
-                trendChart.data.datasets[1].data.push(payload.filtered_vibration);
-                trendChart.data.datasets[2].data.push(payload.filtered_strain);
+                trendChart.data.datasets[0].data.push(parseFloat(payload.filtered_tilt || 0));
+                trendChart.data.datasets[1].data.push(parseFloat(payload.filtered_vibration || 0));
+                trendChart.data.datasets[2].data.push(parseFloat(payload.filtered_strain || 0));
                 trendChart.update();
             }
 
