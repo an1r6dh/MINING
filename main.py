@@ -1225,7 +1225,8 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             syncSessionToSupabase(newSession);
         }
 
-        let currentUser = localStorage.getItem("mine_current_user") || null;
+        let currentUser = null;
+        try { localStorage.removeItem("mine_current_user"); } catch(e) {}
         let activeSimMode = "dynamic";
 
         function checkAuth() {
