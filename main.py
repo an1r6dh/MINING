@@ -202,9 +202,15 @@ class AlertEmailPayload(BaseModel):
 @app.post("/api/send_alert_email")
 @app.post("/send_alert_email")
 def send_alert_email(payload: AlertEmailPayload):
-    recipient = (payload.recipient_email or "").strip()
-    if not recipient or "@" not in recipient:
+    recipient_raw = (payload.recipient_email or "").strip()
+    if not recipient_raw:
         raise HTTPException(status_code=400, detail="Invalid recipient email address")
+
+    # Support multiple comma/semicolon separated registered emails for broadcast
+    import re
+    to_list = [r.strip() for r in re.split(r"[,;]", recipient_raw) if r.strip() and "@" in r]
+    if not to_list:
+        raise HTTPException(status_code=400, detail="No valid recipient email addresses found")
 
     level = payload.alert_level.upper()
     site = payload.site_name or "Active Mine Site"
@@ -291,42 +297,47 @@ Enterprise Mine Subsidence Monitoring System
 
     smtp_success = False
     delivery_error = None
+    delivered_to = []
 
     if smtp_user and smtp_pass:
         try:
             clean_pass = str(smtp_pass).replace(" ", "").strip()
-            msg = MIMEMultipart("alternative")
-            msg["Subject"] = subject
-            msg["From"] = f"Igniters Mine Safety Alerts <{from_email}>"
-            msg["To"] = recipient
-            msg.attach(MIMEText(plain_content, "plain"))
-            msg.attach(MIMEText(html_content, "html"))
-
-            with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=12) as server:
                 server.starttls()
                 server.login(smtp_user, clean_pass)
-                server.sendmail(from_email, [recipient], msg.as_string())
+                for dest in to_list:
+                    msg = MIMEMultipart("alternative")
+                    msg["Subject"] = subject
+                    msg["From"] = f"Igniters Mine Safety Alerts <{from_email}>"
+                    msg["To"] = dest
+                    msg.attach(MIMEText(plain_content, "plain"))
+                    msg.attach(MIMEText(html_content, "html"))
+                    server.sendmail(from_email, [dest], msg.as_string())
+                    delivered_to.append(dest)
+                    print(f"[SUCCESS] Emergency alert email transmitted via SMTP to {dest}")
             smtp_success = True
-            print(f"[SUCCESS] Emergency alert email transmitted via SMTP to {recipient}")
         except Exception as e:
             delivery_error = str(e)
             print(f"[WARNING] SMTP delivery failed ({e}); falling back to audit record")
     else:
-        print(f"[INFO] SMTP credentials not configured in env (SMTP_USER/SMTP_PASS). Alert logged for delivery to: {recipient}")
+        print(f"[INFO] SMTP credentials not configured in env (SMTP_USER/SMTP_PASS). Alert logged for delivery to: {to_list}")
 
-    log_to_supabase_async({
-        "node_id": node,
-        "filtered_tilt": payload.tilt,
-        "filtered_vibration": payload.vibration,
-        "filtered_strain": payload.strain,
-        "status": f"ALERT_SENT_TO_{recipient}_{level}",
-        "timestamp": time.strftime("%H:%M:%S")
-    })
+    for dest in to_list:
+        log_to_supabase_async({
+            "node_id": node,
+            "filtered_tilt": payload.tilt,
+            "filtered_vibration": payload.vibration,
+            "filtered_strain": payload.strain,
+            "status": f"ALERT_SENT_TO_{dest}_{level}",
+            "timestamp": time.strftime("%H:%M:%S")
+        })
 
     return {
         "status": "success",
         "delivered": smtp_success,
-        "recipient": recipient,
+        "recipient": ", ".join(to_list),
+        "recipients": to_list,
+        "delivered_to": delivered_to,
         "from": from_email,
         "alert_level": level,
         "site": site,
@@ -1687,6 +1698,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                         suUsers.forEach(u => {
                             users[u.username] = {
                                 password: users[u.username]?.password || "••••••••",
+                                email: u.email || users[u.username]?.email || "",
                                 role: u.role,
                                 status: u.status,
                                 registeredAt: u.registered_at
@@ -2550,21 +2562,65 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
         let lastAlertEmailLevel = null;
         const ALERT_EMAIL_COOLDOWN_MS = 60 * 1000; // 60 seconds cooldown for repeated identical alerts
 
-        function showEmergencyEmailToast(email, level, msg) {
+        // Helper to collect all registered users' emails for emergency broadcast
+        function getAllRegisteredPersonnelEmails() {
+            const users = getUsers();
+            const emails = new Set();
+
+            // 1. Loop through all accounts registered in local storage
+            Object.keys(users).forEach(uname => {
+                const u = users[uname];
+                if (u && u.email && u.email.includes("@")) {
+                    const clean = u.email.trim().toLowerCase();
+                    // Exclude master sender email from the recipient list
+                    if (clean !== "miningwithigniters@gmail.com") {
+                        emails.add(clean);
+                    }
+                }
+            });
+
+            // 2. Fallback: if no non-master accounts exist yet, check default personnel accounts
+            if (emails.size === 0) {
+                if (users["User"] && users["User"].email && users["User"].email !== "miningwithigniters@gmail.com") {
+                    emails.add(users["User"].email);
+                }
+                if (users["Operator"] && users["Operator"].email && users["Operator"].email !== "miningwithigniters@gmail.com") {
+                    emails.add(users["Operator"].email);
+                }
+            }
+
+            return Array.from(emails);
+        }
+
+        function showEmergencyEmailToast(recipients, level, msg) {
             let toast = document.getElementById("emergency-email-toast");
             if (!toast) {
                 toast = document.createElement("div");
                 toast.id = "emergency-email-toast";
-                toast.style.cssText = "position: fixed; top: 20px; right: 20px; z-index: 99999; color: #fff; padding: 14px 20px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); font-size: 0.88rem; font-weight: 600; border-left: 6px solid #fef08a; display: flex; align-items: center; gap: 12px; transition: opacity 0.4s ease; backdrop-filter: blur(8px);";
+                toast.style.cssText = "position: fixed; top: 20px; right: 20px; z-index: 99999; color: #fff; padding: 14px 20px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); font-size: 0.88rem; font-weight: 600; border-left: 6px solid #fef08a; display: flex; align-items: center; gap: 12px; transition: opacity 0.4s ease; backdrop-filter: blur(8px); max-width: 550px;";
                 document.body.appendChild(toast);
             }
             const isDanger = level === "DANGER";
             toast.style.background = isDanger ? "rgba(220, 38, 38, 0.96)" : "rgba(217, 119, 6, 0.96)";
+
+            let toDisplayStr = "";
+            if (Array.isArray(recipients)) {
+                if (recipients.length === 1) {
+                    toDisplayStr = recipients[0];
+                } else if (recipients.length <= 2) {
+                    toDisplayStr = recipients.join(", ");
+                } else {
+                    toDisplayStr = `All ${recipients.length} Registered Personnel (${recipients.slice(0, 2).join(', ')} +${recipients.length - 2} more)`;
+                }
+            } else {
+                toDisplayStr = String(recipients);
+            }
+
             toast.innerHTML = `
                 <span style="font-size: 1.6rem;">🚨</span>
                 <div>
                     <div style="font-weight: 800; font-size: 0.95rem; letter-spacing: 0.5px; text-transform: uppercase;">EMERGENCY EVACUATION ALERT DISPATCHED</div>
-                    <div style="margin-top: 3px; font-size: 0.85rem;">Dispatched from <strong style="color: #fef08a;">miningwithigniters@gmail.com</strong> &rarr; <strong style="text-decoration: underline; color: #fef08a;">${email}</strong></div>
+                    <div style="margin-top: 3px; font-size: 0.85rem;">Dispatched from <strong style="color: #fef08a;">miningwithigniters@gmail.com</strong> &rarr; <strong style="text-decoration: underline; color: #fef08a;">${toDisplayStr}</strong></div>
                     <div style="margin-top: 5px; font-size: 0.82rem; background: rgba(0,0,0,0.3); padding: 5px 10px; border-radius: 4px; font-style: italic;">
                         "${msg}"
                     </div>
@@ -2578,28 +2634,32 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                     toast.style.opacity = "0";
                     setTimeout(() => { if (toast) toast.style.display = "none"; }, 400);
                 }
-            }, 7500);
+            }, 8500);
         }
 
         async function dispatchEmergencyAlertEmail(level, tilt, vib, strain, forcedRecipient) {
             try {
-                const users = getUsers();
-                let recipient = forcedRecipient;
-                if (!recipient) {
-                    const matchedKey = Object.keys(users).find(k => k.toLowerCase() === (currentUser || '').toLowerCase());
-                    const activeUserObj = matchedKey ? users[matchedKey] : null;
-                    recipient = (activeUserObj && activeUserObj.email) ? activeUserObj.email : (currentUser ? `${currentUser.toLowerCase()}@igniters.com` : "operator@igniters.com");
+                let recipientList = [];
+                if (forcedRecipient) {
+                    recipientList = [forcedRecipient.trim()];
+                } else {
+                    recipientList = getAllRegisteredPersonnelEmails();
+                }
+
+                // If still empty (e.g. only Admin exists), fallback to operator
+                if (recipientList.length === 0) {
+                    recipientList = ["operator@igniters.com"];
                 }
 
                 const currentSite = MINING_SITES[selectedSiteKey] || MINING_SITES["site-1"];
                 const siteName = currentSite.name || "Kolar Gold Fields";
 
                 const payload = {
-                    recipient_email: recipient,
-                    recipient_name: currentUser || "Mine Personnel",
+                    recipient_email: recipientList.join(", "),
+                    recipient_name: "All Registered Mine Personnel",
                     alert_level: level,
                     site_name: siteName,
-                    node_id: selectedNodeId,
+                    node_id: selectedNodeId || "NODE_01",
                     message: "Alert: you have to move from that current site",
                     tilt: parseFloat(tilt || 0),
                     vibration: parseFloat(vib || 0),
@@ -2615,13 +2675,13 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
 
                 if (res.ok) {
                     const resData = await res.json();
-                    console.log("Emergency alert email delivered:", resData);
+                    console.log("Emergency alert email delivered to registered users:", resData);
                 }
-                showEmergencyEmailToast(recipient, level, "Alert: you have to move from that current site");
+                showEmergencyEmailToast(recipientList, level, "Alert: you have to move from that current site");
             } catch (err) {
                 console.warn("Emergency alert email dispatch notice:", err);
-                const fallbackEmail = forcedRecipient || "operator@igniters.com";
-                showEmergencyEmailToast(fallbackEmail, level, "Alert: you have to move from that current site");
+                const fallbackList = forcedRecipient ? [forcedRecipient] : ["Registered Personnel"];
+                showEmergencyEmailToast(fallbackList, level, "Alert: you have to move from that current site");
             }
         }
 
