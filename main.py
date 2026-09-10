@@ -628,7 +628,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                         </select>
                     </div>
                     <div class="control-item">
-                        <label>Select Sensor Node (20 Nodes/Site)</label>
+                        <label>Select Sensor Node</label>
                         <select id="live-node-selector" onchange="onLiveNodeChange()" style="min-width: 250px; font-weight: 600;">
                             <!-- Populated dynamically with NODE_01 and NODE_02 -->
                         </select>
@@ -1225,7 +1225,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             syncSessionToSupabase(newSession);
         }
 
-        let currentUser = null;
+        let currentUser = localStorage.getItem("mine_current_user") || null;
         let activeSimMode = "dynamic";
 
         function checkAuth() {
@@ -1691,11 +1691,6 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                     nodeHistoryBuffers[nid] = initNodeHistoryBuffer(nid);
                 }
             });
-        }`;
-                if (!nodeHistoryBuffers[nid]) {
-                    nodeHistoryBuffers[nid] = initNodeHistoryBuffer(nid);
-                }
-            }
         }
         preInitializeAllNodeBuffers();
 
