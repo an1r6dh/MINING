@@ -39,6 +39,23 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_FILE = os.path.join(BASE_DIR, "model.joblib")
 model = None
 
+# Auto-load environment secrets from .env.local if present
+for env_name in [".env.local", ".env"]:
+    env_path = os.path.join(BASE_DIR, env_name)
+    if os.path.exists(env_path):
+        try:
+            with open(env_path, "r", encoding="utf-8") as ef:
+                for eline in ef:
+                    eline = eline.strip()
+                    if eline and not eline.startswith("#") and "=" in eline:
+                        ek, ev = eline.split("=", 1)
+                        ek = ek.strip()
+                        ev = ev.strip().strip('"').strip("'")
+                        if ek and ek not in os.environ:
+                            os.environ[ek] = ev
+        except Exception:
+            pass
+
 SUPABASE_URL = "https://toabcprwbtaipxwzmdyl.supabase.co"
 SUPABASE_KEY = "sb_publishable_DS2T92fPyhKkhGyI41dtzA_qw2_m_3C"
 
@@ -277,16 +294,17 @@ Enterprise Mine Subsidence Monitoring System
 
     if smtp_user and smtp_pass:
         try:
+            clean_pass = str(smtp_pass).replace(" ", "").strip()
             msg = MIMEMultipart("alternative")
             msg["Subject"] = subject
-            msg["From"] = from_email
+            msg["From"] = f"Igniters Mine Safety Alerts <{from_email}>"
             msg["To"] = recipient
             msg.attach(MIMEText(plain_content, "plain"))
             msg.attach(MIMEText(html_content, "html"))
 
-            with smtplib.SMTP(smtp_host, smtp_port, timeout=8) as server:
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
                 server.starttls()
-                server.login(smtp_user, smtp_pass)
+                server.login(smtp_user, clean_pass)
                 server.sendmail(from_email, [recipient], msg.as_string())
             smtp_success = True
             print(f"[SUCCESS] Emergency alert email transmitted via SMTP to {recipient}")
