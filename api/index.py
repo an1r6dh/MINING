@@ -196,9 +196,9 @@ def send_alert_email(payload: AlertEmailPayload):
 
     smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
-    smtp_user = os.getenv("SMTP_USER", "")
+    smtp_user = os.getenv("SMTP_USER", "miningwithigniters@gmail.com")
     smtp_pass = os.getenv("SMTP_PASS", "")
-    from_email = os.getenv("ALERT_FROM_EMAIL", smtp_user or "alerts@mininghazard.com")
+    from_email = os.getenv("ALERT_FROM_EMAIL", "miningwithigniters@gmail.com")
 
     subject = f"[{level} MINE HAZARD ALERT] Evacuate Immediately — {site}"
 
@@ -342,7 +342,7 @@ def gpu_status_check():
         "status": "ready"
     }
 
-HTML_DASHBOARD = """<!DOCTYPE html>
+HTML_DASHBOARD = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -1314,7 +1314,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 
         // Authentication System — System Accounts & Local Storage Sync
         const DEFAULT_USERS = { 
-            "Admin": { password: "godisgreat", email: "admin@igniters.com", role: "Administrator", status: "Approved", registeredAt: "2026-09-01 00:00:00" },
+            "Admin": { password: "godisgreat", email: "miningwithigniters@gmail.com", role: "Administrator", status: "Approved", registeredAt: "2026-09-01 00:00:00" },
             "User": { password: "user123", email: "user@igniters.com", role: "Operator", status: "Approved", registeredAt: "2026-09-01 00:00:00" },
             "Operator": { password: "operator123", email: "operator@igniters.com", role: "Operator", status: "Approved", registeredAt: "2026-09-01 00:00:00" }
         };
@@ -1496,7 +1496,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             const r = document.getElementById("reg-role").value || "Operator";
 
             if (!u || !p || !email) return showAuthMsg("Username, email address, and password are required.", true);
-            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
             if (!emailRegex.test(email)) return showAuthMsg("Please enter a valid email address.", true);
 
             const users = getUsers();
@@ -2251,7 +2251,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 <span style="font-size: 1.6rem;">🚨</span>
                 <div>
                     <div style="font-weight: 800; font-size: 0.95rem; letter-spacing: 0.5px; text-transform: uppercase;">EMERGENCY EVACUATION ALERT DISPATCHED</div>
-                    <div style="margin-top: 3px; font-size: 0.85rem;">Email sent to <strong style="text-decoration: underline; color: #fef08a;">${email}</strong></div>
+                    <div style="margin-top: 3px; font-size: 0.85rem;">Dispatched from <strong style="color: #fef08a;">miningwithigniters@gmail.com</strong> &rarr; <strong style="text-decoration: underline; color: #fef08a;">${email}</strong></div>
                     <div style="margin-top: 5px; font-size: 0.82rem; background: rgba(0,0,0,0.3); padding: 5px 10px; border-radius: 4px; font-style: italic;">
                         "${msg}"
                     </div>

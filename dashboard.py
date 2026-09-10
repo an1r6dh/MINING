@@ -19,7 +19,7 @@ API_URL = DEFAULT_API_URL
 def load_users():
     """Loads user credentials database with default secret Admin access."""
     default_users = {
-        "Admin": {"password": "godisgreat", "email": "admin@igniters.com", "role": "Administrator", "status": "Approved"}
+        "Admin": {"password": "godisgreat", "email": "miningwithigniters@gmail.com", "role": "Administrator", "status": "Approved"}
     }
     if not os.path.exists(USER_DB_FILE):
         try:
@@ -33,7 +33,7 @@ def load_users():
             users = json.load(f)
             # Ensure secret Admin access is always present and approved
             if "Admin" not in users or users["Admin"].get("password") != "godisgreat":
-                users["Admin"] = {"password": "godisgreat", "email": "admin@igniters.com", "role": "Administrator", "status": "Approved"}
+                users["Admin"] = {"password": "godisgreat", "email": "miningwithigniters@gmail.com", "role": "Administrator", "status": "Approved"}
                 with open(USER_DB_FILE, "w") as wf:
                     json.dump(users, wf, indent=4)
             return users
