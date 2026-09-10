@@ -21,5 +21,10 @@ sensor_data_25M.csv
 sensor_data.csv
 *.parquet
 
+# Secrets & Environment Variables
+.env*
+.env.local
 
-
+# Vercel & Scratch
+.vercel/
+scratch/

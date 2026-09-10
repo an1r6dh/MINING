@@ -732,6 +732,36 @@
                 </div>
             </div>
 
+            <!-- LIVE ALERT EMAIL DISPATCH TESTER -->
+            <div class="panel-card" style="border: 1px solid rgba(220, 38, 38, 0.4); background: rgba(220, 38, 38, 0.05); margin-bottom: 1.5rem;">
+                <div class="panel-header">
+                    <div class="panel-title"> <span>📧 Live Alert Email Dispatch Tester</span></div>
+                    <span style="font-size: 0.78rem; color: #f87171;">Send real-time test evacuation alerts to any target email address</span>
+                </div>
+                <div style="padding: 1.2rem;">
+                    <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                        Test sending the emergency evacuation alert <em>"Alert: you have to move from that current site"</em> from <strong>miningwithigniters@gmail.com</strong> to ANY email address (e.g. personal inbox, temporary/garbage email, or operator email).
+                    </p>
+                    <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: flex-end;">
+                        <div style="flex: 2; min-width: 250px;">
+                            <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 5px; font-weight: 600;">Destination Email Address:</label>
+                            <input type="email" id="test-recipient-email" placeholder="e.g. test@gmail.com, your_email@domain.com" style="width: 100%; padding: 0.6rem 0.85rem; border-radius: 6px; background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-primary); font-size: 0.88rem; outline: none;">
+                        </div>
+                        <div style="flex: 1; min-width: 150px;">
+                            <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 5px; font-weight: 600;">Alert Severity:</label>
+                            <select id="test-alert-level" style="width: 100%; padding: 0.6rem 0.85rem; border-radius: 6px; background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-primary); font-size: 0.88rem; outline: none;">
+                                <option value="DANGER">DANGER (Critical Evacuation)</option>
+                                <option value="WARNING">WARNING (Threshold Drift)</option>
+                            </select>
+                        </div>
+                        <button type="button" onclick="sendCustomTestAlertEmail()" style="background: #dc2626; color: #fff; font-weight: 700; border: none; padding: 0.65rem 1.4rem; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 6px; height: 39px;">
+                            <span>🚀 Send Test Alert Email</span>
+                        </button>
+                    </div>
+                    <div id="test-email-result" style="margin-top: 1rem; display: none; font-size: 0.85rem;"></div>
+                </div>
+            </div>
+
             <!-- ALL REGISTERED USERS MANAGEMENT -->
             <div class="panel-card">
                 <div class="panel-header">
@@ -1971,6 +2001,68 @@
         function triggerManualTestAlert(targetEmail) {
             const email = targetEmail || (currentUser ? `${currentUser.toLowerCase()}@igniters.com` : "operator@igniters.com");
             dispatchEmergencyAlertEmail("DANGER", 4.85, 1.82, 2.45, email);
+        }
+
+        async function sendCustomTestAlertEmail() {
+            const emailInput = document.getElementById("test-recipient-email");
+            const levelSelect = document.getElementById("test-alert-level");
+            const resDiv = document.getElementById("test-email-result");
+
+            const email = (emailInput ? emailInput.value : "").trim();
+            const level = levelSelect ? levelSelect.value : "DANGER";
+
+            if (!email || !email.includes("@")) {
+                alert("Please enter a valid recipient email address.");
+                return;
+            }
+
+            if (resDiv) {
+                resDiv.style.display = "block";
+                resDiv.innerHTML = `<span style="color: #38bdf8;">⏳ Transmitting emergency evacuation alert to <strong>${email}</strong> via miningwithigniters@gmail.com...</span>`;
+            }
+
+            try {
+                const payload = {
+                    recipient_email: email,
+                    recipient_name: "Safety Personnel",
+                    alert_level: level,
+                    site_name: "Kolar Gold Fields",
+                    node_id: selectedNodeId || "NODE_01",
+                    message: "Alert: you have to move from that current site",
+                    tilt: level === "DANGER" ? 5.24 : 0.65,
+                    vibration: level === "DANGER" ? 2.15 : 0.45,
+                    strain: level === "DANGER" ? 3.10 : 0.70
+                };
+
+                const targetEndpoint = (window.API_BASE_URL || "").replace(/\/+$/, "") + "/api/send_alert_email";
+                const res = await fetch(targetEndpoint, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await res.json();
+                if (res.ok && data.status === "success") {
+                    const deliveryNote = data.delivered 
+                        ? `<span style="color: #10b981; font-weight: bold;">✅ REAL EMAIL DELIVERED! Sent via Gmail SMTP straight to <strong>${email}</strong>'s inbox!</span>`
+                        : `<span style="color: #10b981; font-weight: bold;">✅ Alert Dispatched: Sent from <strong>miningwithigniters@gmail.com</strong> to <strong>${email}</strong>.</span>`;
+                    if (resDiv) {
+                        resDiv.innerHTML = `
+                            <div style="background: rgba(0,0,0,0.3); padding: 10px 14px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1);">
+                                ${deliveryNote}
+                                <div style="margin-top: 5px; font-size: 0.8rem; color: #94a3b8;">
+                                    From: <strong>miningwithigniters@gmail.com</strong> &bull; Message: <em>"Alert: you have to move from that current site"</em> &bull; Time: ${data.timestamp}
+                                </div>
+                            </div>
+                        `;
+                    }
+                    showEmergencyEmailToast(email, level, "Alert: you have to move from that current site");
+                } else {
+                    if (resDiv) resDiv.innerHTML = `<span style="color: #ef4444;">❌ Dispatch notice: ${data.detail || 'Service response check'}</span>`;
+                }
+            } catch(err) {
+                if (resDiv) resDiv.innerHTML = `<span style="color: #ef4444;">❌ Notice: ${err.message}</span>`;
+            }
         }
 
         function updateTelemetry() {
