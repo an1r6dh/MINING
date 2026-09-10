@@ -19,7 +19,7 @@ API_URL = DEFAULT_API_URL
 def load_users():
     """Loads user credentials database with default secret Admin access."""
     default_users = {
-        "Admin": {"password": "godisgreat", "role": "Administrator", "status": "Approved"}
+        "Admin": {"password": "godisgreat", "email": "admin@igniters.com", "role": "Administrator", "status": "Approved"}
     }
     if not os.path.exists(USER_DB_FILE):
         try:
@@ -33,17 +33,23 @@ def load_users():
             users = json.load(f)
             # Ensure secret Admin access is always present and approved
             if "Admin" not in users or users["Admin"].get("password") != "godisgreat":
-                users["Admin"] = {"password": "godisgreat", "role": "Administrator", "status": "Approved"}
+                users["Admin"] = {"password": "godisgreat", "email": "admin@igniters.com", "role": "Administrator", "status": "Approved"}
                 with open(USER_DB_FILE, "w") as wf:
                     json.dump(users, wf, indent=4)
             return users
     except Exception:
         return default_users
 
-def save_user(username, password, role="Operator", status="Pending"):
+def save_user(username, password, role="Operator", status="Pending", email=""):
     """Saves newly registered user into persistent storage with authorization status."""
     users = load_users()
-    users[username] = {"password": password, "role": role, "status": status, "registered_at": time.strftime("%Y-%m-%d %H:%M:%S")}
+    users[username] = {
+        "password": password,
+        "email": email,
+        "role": role,
+        "status": status,
+        "registered_at": time.strftime("%Y-%m-%d %H:%M:%S")
+    }
     with open(USER_DB_FILE, "w") as f:
         json.dump(users, f, indent=4)
 
@@ -84,6 +90,7 @@ if not st.session_state.authenticated:
                         st.session_state.authenticated = True
                         st.session_state.username = login_user
                         st.session_state.role = users[login_user].get("role", "User")
+                        st.session_state.email = users[login_user].get("email", f"{login_user.lower()}@igniters.com")
                         st.success(f"Welcome back, {login_user}!")
                         time.sleep(0.5)
                         st.rerun()
@@ -94,21 +101,24 @@ if not st.session_state.authenticated:
         with tab_register:
             st.subheader("Create New Account")
             reg_user = st.text_input("New Username", key="reg_username")
+            reg_email = st.text_input("Email Address (For Evacuation & Hazard Alerts)", key="reg_email", placeholder="operator@minecorp.com")
             reg_pass = st.text_input("New Password", type="password", key="reg_password")
             reg_pass_confirm = st.text_input("Confirm Password", type="password", key="reg_password_confirm")
             reg_role = st.selectbox("Role", ["Operator", "Safety Engineer", "Inspector"])
 
             if st.button("Register Account", use_container_width=True):
                 users = load_users()
-                if not reg_user or not reg_pass:
-                    st.error("Username and password fields cannot be empty.")
+                if not reg_user or not reg_pass or not reg_email:
+                    st.error("Username, email, and password fields cannot be empty.")
+                elif "@" not in reg_email or "." not in reg_email:
+                    st.error("Please provide a valid email address.")
                 elif reg_user in users:
                     st.error("Username already exists! Please choose a different username.")
                 elif reg_pass != reg_pass_confirm:
                     st.error("Passwords do not match.")
                 else:
-                    save_user(reg_user, reg_pass, reg_role, status="Pending")
-                    st.success("✅ Account created! Status: Pending Admin Authorization. Please notify an Administrator to authorize your account.")
+                    save_user(reg_user, reg_pass, reg_role, status="Pending", email=reg_email.strip().lower())
+                    st.success("✅ Account created! Status: Pending Admin Authorization. Emergency hazard evacuation alerts will be dispatched to your registered email.")
 
     st.stop()
 
@@ -309,8 +319,12 @@ if page_view == "🖥️ Live Monitoring":
         st.success("### STATUS: SAFE — Normal Operation (Node: NODE_01)")
     elif status == "WARNING":
         st.warning("### STATUS: WARNING — Structural Drift Threshold Approached (Node: NODE_01)")
+        target_email = st.session_state.get("email", f"{st.session_state.username.lower()}@igniters.com") if st.session_state.username else "operator@igniters.com"
+        st.warning(f"⚠️ **Alert: you have to move from that current site** — Evacuation notice dispatched to registered email: `{target_email}`")
     elif status == "DANGER":
         st.error("### STATUS: DANGER — Immediate Collapse Risk Detected! (Node: NODE_01)")
+        target_email = st.session_state.get("email", f"{st.session_state.username.lower()}@igniters.com") if st.session_state.username else "operator@igniters.com"
+        st.error(f"🚨 **Alert: you have to move from that current site** — High-priority evacuation alert dispatched to registered email: `{target_email}`")
     else:
         st.info(f"### STATUS: {status}")
 

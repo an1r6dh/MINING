@@ -19,6 +19,14 @@
     {
       "source": "/api/gpu_status",
       "destination": "/api/index.py"
+    },
+    {
+      "source": "/api/send_alert_email",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/send_alert_email",
+      "destination": "/api/index.py"
     }
   ]
 }

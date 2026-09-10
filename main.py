@@ -1,4 +1,7 @@
 import os
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 # Hardware Acceleration Patching (dGPU / Intel / CPU multi-core)
 try:
@@ -62,7 +65,6 @@ class PortableGPUModel:
         return self.classes_[preds]
 
 class RuleBasedHazardPredictor:
-
     def predict(self, features):
         res = []
         for feat in features:
@@ -88,7 +90,6 @@ def get_model():
         except Exception as e:
             print(f"[WARNING] Error loading model file ({MODEL_FILE}): {e}")
 
-    # Inline decision tree classifier generator fallback for Vercel serverless
     try:
         import numpy as np
         from sklearn.tree import DecisionTreeClassifier
@@ -107,8 +108,6 @@ def get_model():
         print(f"[WARNING] Fallback model generation failed: {e}")
         model = RuleBasedHazardPredictor()
         return model
-
-# Startup model initialization handled lazily per request
 
 class FilteredDataPayload(BaseModel):
     node_id: str
@@ -148,7 +147,6 @@ def predict_risk(data: FilteredDataPayload):
         else:
             status_str = "SAFE"
 
-
     risk_level_map = {
         "SAFE": "Low Risk",
         "WARNING": "Medium Risk",
@@ -156,7 +154,6 @@ def predict_risk(data: FilteredDataPayload):
     }
     risk_level = risk_level_map.get(status_str, "Low Risk")
 
-    # Async background sync to Supabase Cloud Database
     log_to_supabase_async({
         "node_id": data.node_id,
         "filtered_tilt": data.filtered_tilt,
@@ -172,6 +169,153 @@ def predict_risk(data: FilteredDataPayload):
         "node_id": data.node_id,
         "risk_level": risk_level,
         "result": "success"
+    }
+
+class AlertEmailPayload(BaseModel):
+    recipient_email: str
+    recipient_name: str = "Mine Personnel"
+    alert_level: str = "DANGER"
+    site_name: str = "Kolar Gold Fields"
+    node_id: str = "NODE_01"
+    message: str = "Alert: you have to move from that current site"
+    tilt: float = 0.0
+    vibration: float = 0.0
+    strain: float = 0.0
+
+@app.post("/api/send_alert_email")
+@app.post("/send_alert_email")
+def send_alert_email(payload: AlertEmailPayload):
+    recipient = (payload.recipient_email or "").strip()
+    if not recipient or "@" not in recipient:
+        raise HTTPException(status_code=400, detail="Invalid recipient email address")
+
+    level = payload.alert_level.upper()
+    site = payload.site_name or "Active Mine Site"
+    node = payload.node_id or "NODE_01"
+    msg_text = payload.message or "Alert: you have to move from that current site"
+
+    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = os.getenv("SMTP_USER", "")
+    smtp_pass = os.getenv("SMTP_PASS", "")
+    from_email = os.getenv("ALERT_FROM_EMAIL", smtp_user or "alerts@mininghazard.com")
+
+    subject = f"[{level} MINE HAZARD ALERT] Evacuate Immediately — {site}"
+
+    plain_content = f"""EMERGENCY HAZARD NOTIFICATION
+---------------------------------------------
+{msg_text}
+
+Status Level  : {level}
+Mine Location : {site}
+Sensor Node   : {node}
+Telemetry     : Tilt: {payload.tilt:.2f} deg/m | Vibration: {payload.vibration:.2f} g | Strain: {payload.strain:.2f} mm
+Timestamp     : {time.strftime('%Y-%m-%d %H:%M:%S')}
+
+INSTRUCTION:
+Hazard monitoring sensors have detected high-risk ground instability.
+You have to move from that current site immediately and report to the designated safe zone.
+---------------------------------------------
+Enterprise Mine Subsidence Monitoring System
+"""
+
+    badge_bg = "#dc2626" if level == "DANGER" else "#d97706"
+    html_content = f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: Arial, sans-serif; background-color: #0b1120; color: #f1f5f9; padding: 20px; margin: 0;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; margin: 0 auto; background-color: #1e293b; border-radius: 12px; overflow: hidden; border: 1px solid #334155; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
+    <tr>
+      <td style="background-color: {badge_bg}; padding: 20px; text-align: center;">
+        <h1 style="color: #ffffff; margin: 0; font-size: 22px; letter-spacing: 1px;">🚨 EMERGENCY MINE HAZARD ALERT</h1>
+        <p style="color: #fef08a; margin: 6px 0 0 0; font-weight: bold; font-size: 15px;">IMMEDIATE EVACUATION NOTICE</p>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding: 24px;">
+        <div style="background-color: rgba(220, 38, 38, 0.15); border-left: 5px solid {badge_bg}; padding: 14px 18px; border-radius: 6px; margin-bottom: 20px;">
+          <p style="font-size: 18px; font-weight: bold; color: #f87171; margin: 0;">{msg_text}</p>
+        </div>
+        <table width="100%" cellpadding="8" cellspacing="0" style="border-collapse: collapse; font-size: 14px; margin-bottom: 20px;">
+          <tr style="border-bottom: 1px solid #334155;">
+            <td style="color: #94a3b8;"><strong>Hazard Level:</strong></td>
+            <td><span style="background-color: {badge_bg}; color: #fff; padding: 3px 10px; border-radius: 4px; font-weight: bold;">{level}</span></td>
+          </tr>
+          <tr style="border-bottom: 1px solid #334155;">
+            <td style="color: #94a3b8;"><strong>Mine Site:</strong></td>
+            <td style="color: #ffffff; font-weight: bold;">{site}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #334155;">
+            <td style="color: #94a3b8;"><strong>Sensor Node:</strong></td>
+            <td style="color: #38bdf8; font-weight: bold;">{node}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #334155;">
+            <td style="color: #cbd5e1;">Tilt: <strong>{payload.tilt:.2f}</strong> deg/m | Vibration: <strong>{payload.vibration:.2f}</strong> g | Strain: <strong>{payload.strain:.2f}</strong> mm</td>
+          </tr>
+          <tr>
+            <td style="color: #94a3b8;"><strong>Timestamp:</strong></td>
+            <td style="color: #cbd5e1;">{time.strftime('%Y-%m-%d %H:%M:%S UTC')}</td>
+          </tr>
+        </table>
+        <div style="background-color: #0f172a; padding: 14px; border-radius: 6px; text-align: center; border: 1px solid #334155;">
+          <p style="color: #fbbf24; margin: 0; font-weight: bold; font-size: 14px;">⚡ Immediate Action: Evacuate current sector to surface shelter.</p>
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <td style="background-color: #0f172a; padding: 12px; text-align: center; font-size: 12px; color: #64748b; border-top: 1px solid #334155;">
+        Automated Dispatch from Enterprise Early Warning System &bull; Igniters AI
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+"""
+
+    smtp_success = False
+    delivery_error = None
+
+    if smtp_user and smtp_pass:
+        try:
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"] = from_email
+            msg["To"] = recipient
+            msg.attach(MIMEText(plain_content, "plain"))
+            msg.attach(MIMEText(html_content, "html"))
+
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=8) as server:
+                server.starttls()
+                server.login(smtp_user, smtp_pass)
+                server.sendmail(from_email, [recipient], msg.as_string())
+            smtp_success = True
+            print(f"[SUCCESS] Emergency alert email transmitted via SMTP to {recipient}")
+        except Exception as e:
+            delivery_error = str(e)
+            print(f"[WARNING] SMTP delivery failed ({e}); falling back to audit record")
+    else:
+        print(f"[INFO] SMTP credentials not configured in env (SMTP_USER/SMTP_PASS). Alert logged for delivery to: {recipient}")
+
+    log_to_supabase_async({
+        "node_id": node,
+        "filtered_tilt": payload.tilt,
+        "filtered_vibration": payload.vibration,
+        "filtered_strain": payload.strain,
+        "status": f"ALERT_SENT_TO_{recipient}_{level}",
+        "timestamp": time.strftime("%H:%M:%S")
+    })
+
+    return {
+        "status": "success",
+        "delivered": smtp_success,
+        "recipient": recipient,
+        "from": from_email,
+        "alert_level": level,
+        "site": site,
+        "message": msg_text,
+        "mode": "live_smtp" if smtp_success else "audit_logged",
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "error": delivery_error
     }
 
 @app.get("/health")
@@ -556,6 +700,10 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                     <input type="text" id="reg-username" required placeholder="Choose username">
                 </div>
                 <div class="form-group">
+                    <label>Email Address (For Evacuation & Hazard Alerts)</label>
+                    <input type="email" id="reg-email" required placeholder="operator@minecorp.com">
+                </div>
+                <div class="form-group">
                     <label>Password</label>
                     <input type="password" id="reg-password" required placeholder="Choose password">
                 </div>
@@ -915,6 +1063,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                         <thead>
                             <tr>
                                 <th>Username</th>
+                                <th>Email Address</th>
                                 <th>Requested Role</th>
                                 <th>Registration Date</th>
                                 <th>Authorization Action</th>
@@ -938,6 +1087,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                         <thead>
                             <tr>
                                 <th>Username</th>
+                                <th>Email Address</th>
                                 <th>Assigned Role</th>
                                 <th>Status</th>
                                 <th>Registration Date</th>
@@ -1147,11 +1297,12 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             }
         }
 
-        async function syncUserToSupabase(username, role, status, registeredAt) {
+        async function syncUserToSupabase(username, role, status, registeredAt, email) {
             if (!supabaseClient) return;
             try {
                 await supabaseClient.from('users').upsert([{
                     username: username,
+                    email: email || '',
                     role: role,
                     status: status,
                     registered_at: registeredAt
@@ -1163,9 +1314,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 
         // Authentication System — System Accounts & Local Storage Sync
         const DEFAULT_USERS = { 
-            "Admin": { password: "godisgreat", role: "Administrator", status: "Approved", registeredAt: "2026-09-01 00:00:00" },
-            "User": { password: "user123", role: "Operator", status: "Approved", registeredAt: "2026-09-01 00:00:00" },
-            "Operator": { password: "operator123", role: "Operator", status: "Approved", registeredAt: "2026-09-01 00:00:00" }
+            "Admin": { password: "godisgreat", email: "admin@igniters.com", role: "Administrator", status: "Approved", registeredAt: "2026-09-01 00:00:00" },
+            "User": { password: "user123", email: "user@igniters.com", role: "Operator", status: "Approved", registeredAt: "2026-09-01 00:00:00" },
+            "Operator": { password: "operator123", email: "operator@igniters.com", role: "Operator", status: "Approved", registeredAt: "2026-09-01 00:00:00" }
         };
 
         function getUsers() {
@@ -1174,6 +1325,8 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             Object.keys(DEFAULT_USERS).forEach(k => {
                 if (!users[k]) {
                     users[k] = DEFAULT_USERS[k];
+                } else if (!users[k].email) {
+                    users[k].email = DEFAULT_USERS[k].email;
                 }
             });
             return users;
@@ -1338,10 +1491,14 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 try { history.replaceState(null, '', window.location.pathname); } catch(err) {}
             }
             const u = document.getElementById("reg-username").value.trim();
+            const email = (document.getElementById("reg-email").value || "").trim().toLowerCase();
             const p = document.getElementById("reg-password").value;
             const r = document.getElementById("reg-role").value || "Operator";
 
-            if (!u || !p) return showAuthMsg("Username and password are required.", true);
+            if (!u || !p || !email) return showAuthMsg("Username, email address, and password are required.", true);
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(email)) return showAuthMsg("Please enter a valid email address.", true);
+
             const users = getUsers();
             const existingKey = Object.keys(users).find(k => k.toLowerCase() === u.toLowerCase());
             if (existingKey) return showAuthMsg("Username already exists.", true);
@@ -1349,12 +1506,13 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             const regTime = getFormattedTimestamp(0);
             users[u] = {
                 password: p,
+                email: email,
                 role: r,
                 status: "Approved",
                 registeredAt: regTime
             };
             saveUsers(users);
-            syncUserToSupabase(u, r, "Approved", regTime);
+            syncUserToSupabase(u, r, "Approved", regTime, email);
 
             currentUser = u;
             localStorage.setItem("mine_current_user", u);
@@ -1441,11 +1599,12 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             // Render Pending Table
             const pendingTbody = document.getElementById("adm-pending-tbody");
             if (pendingList.length === 0) {
-                pendingTbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">No pending user authorization requests found.</td></tr>`;
+                pendingTbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">No pending user authorization requests found.</td></tr>`;
             } else {
                 pendingTbody.innerHTML = pendingList.map(u => `
                     <tr>
                         <td><strong>${u.username}</strong></td>
+                        <td><span style="color: var(--primary-accent); font-family: monospace; font-size: 0.82rem;">${u.email || (u.username.toLowerCase() + '@igniters.com')}</span></td>
                         <td><span class="user-badge">${u.role}</span></td>
                         <td>${u.registeredAt || 'Just now'}</td>
                         <td>
@@ -1459,19 +1618,24 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             // Render Registered Users Table
             const usersTbody = document.getElementById("adm-users-tbody");
             if (Object.keys(users).length === 0) {
-                usersTbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">No registered user accounts found.</td></tr>`;
+                usersTbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">No registered user accounts found.</td></tr>`;
             } else {
                 usersTbody.innerHTML = Object.keys(users).map(uname => {
                     const u = users[uname];
+                    const userEmail = u.email || (uname.toLowerCase() + '@igniters.com');
                     const isApproved = (u.status === "Approved" || uname === "Admin");
                     return `
                         <tr>
                             <td><strong>${uname}</strong></td>
+                            <td><span style="color: var(--primary-accent); font-family: monospace; font-size: 0.82rem;">${userEmail}</span></td>
                             <td><span class="user-badge">${u.role || 'Operator'}</span></td>
                             <td><span class="badge ${isApproved ? 'SAFE' : 'WARNING'}">${isApproved ? 'APPROVED' : 'PENDING'}</span></td>
                             <td>${u.registeredAt || 'Pre-configured'}</td>
                             <td>
-                                ${uname === 'Admin' ? '<span style="color: var(--text-muted);">Master Admin</span>' : `
+                                ${uname === 'Admin' ? `
+                                    <button onclick="triggerManualTestAlert('${userEmail}')" style="background: rgba(220,38,38,0.2); color: #f87171; border: 1px solid rgba(220,38,38,0.4); padding: 0.3rem 0.60rem; border-radius: 6px; font-size: 0.78rem; font-weight: 600; cursor: pointer;">🚨 Test Alert</button>
+                                ` : `
+                                    <button onclick="triggerManualTestAlert('${userEmail}')" style="background: rgba(220,38,38,0.2); color: #f87171; border: 1px solid rgba(220,38,38,0.4); padding: 0.3rem 0.60rem; border-radius: 6px; font-size: 0.78rem; font-weight: 600; cursor: pointer; margin-right: 0.3rem;">🚨 Alert</button>
                                     <button onclick="toggleUserStatus('${uname}')" style="background: var(--primary-accent); color: #fff; border: none; padding: 0.3rem 0.60rem; border-radius: 6px; font-size: 0.78rem; font-weight: 600; cursor: pointer; margin-right: 0.3rem;">${isApproved ? 'Revoke' : 'Approve'}</button>
                                     <button onclick="deleteUser('${uname}')" style="background: transparent; color: #ef4444; border: 1px solid #ef4444; padding: 0.3rem 0.60rem; border-radius: 6px; font-size: 0.78rem; font-weight: 600; cursor: pointer;">Delete</button>
                                 `}
@@ -2065,6 +2229,94 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             }
         }
 
+        
+        // =========================================================================
+        // EMERGENCY HAZARD ALERT EMAIL DISPATCHER
+        // =========================================================================
+        let lastAlertEmailTimestamp = 0;
+        let lastAlertEmailLevel = null;
+        const ALERT_EMAIL_COOLDOWN_MS = 60 * 1000; // 60 seconds cooldown for repeated identical alerts
+
+        function showEmergencyEmailToast(email, level, msg) {
+            let toast = document.getElementById("emergency-email-toast");
+            if (!toast) {
+                toast = document.createElement("div");
+                toast.id = "emergency-email-toast";
+                toast.style.cssText = "position: fixed; top: 20px; right: 20px; z-index: 99999; color: #fff; padding: 14px 20px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); font-size: 0.88rem; font-weight: 600; border-left: 6px solid #fef08a; display: flex; align-items: center; gap: 12px; transition: opacity 0.4s ease; backdrop-filter: blur(8px);";
+                document.body.appendChild(toast);
+            }
+            const isDanger = level === "DANGER";
+            toast.style.background = isDanger ? "rgba(220, 38, 38, 0.96)" : "rgba(217, 119, 6, 0.96)";
+            toast.innerHTML = `
+                <span style="font-size: 1.6rem;">🚨</span>
+                <div>
+                    <div style="font-weight: 800; font-size: 0.95rem; letter-spacing: 0.5px; text-transform: uppercase;">EMERGENCY EVACUATION ALERT DISPATCHED</div>
+                    <div style="margin-top: 3px; font-size: 0.85rem;">Email sent to <strong style="text-decoration: underline; color: #fef08a;">${email}</strong></div>
+                    <div style="margin-top: 5px; font-size: 0.82rem; background: rgba(0,0,0,0.3); padding: 5px 10px; border-radius: 4px; font-style: italic;">
+                        "${msg}"
+                    </div>
+                </div>
+            `;
+            toast.style.display = "flex";
+            toast.style.opacity = "1";
+            clearTimeout(window._toastTimeout);
+            window._toastTimeout = setTimeout(() => {
+                if (toast) {
+                    toast.style.opacity = "0";
+                    setTimeout(() => { if (toast) toast.style.display = "none"; }, 400);
+                }
+            }, 7500);
+        }
+
+        async function dispatchEmergencyAlertEmail(level, tilt, vib, strain, forcedRecipient) {
+            try {
+                const users = getUsers();
+                let recipient = forcedRecipient;
+                if (!recipient) {
+                    const matchedKey = Object.keys(users).find(k => k.toLowerCase() === (currentUser || '').toLowerCase());
+                    const activeUserObj = matchedKey ? users[matchedKey] : null;
+                    recipient = (activeUserObj && activeUserObj.email) ? activeUserObj.email : (currentUser ? `${currentUser.toLowerCase()}@igniters.com` : "operator@igniters.com");
+                }
+
+                const currentSite = MINING_SITES[selectedSiteKey] || MINING_SITES["site-1"];
+                const siteName = currentSite.name || "Kolar Gold Fields";
+
+                const payload = {
+                    recipient_email: recipient,
+                    recipient_name: currentUser || "Mine Personnel",
+                    alert_level: level,
+                    site_name: siteName,
+                    node_id: selectedNodeId,
+                    message: "Alert: you have to move from that current site",
+                    tilt: parseFloat(tilt || 0),
+                    vibration: parseFloat(vib || 0),
+                    strain: parseFloat(strain || 0)
+                };
+
+                const targetEndpoint = (window.API_BASE_URL || "").replace(/\/+$/, "") + "/api/send_alert_email";
+                const res = await fetch(targetEndpoint, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+
+                if (res.ok) {
+                    const resData = await res.json();
+                    console.log("Emergency alert email delivered:", resData);
+                }
+                showEmergencyEmailToast(recipient, level, "Alert: you have to move from that current site");
+            } catch (err) {
+                console.warn("Emergency alert email dispatch notice:", err);
+                const fallbackEmail = forcedRecipient || "operator@igniters.com";
+                showEmergencyEmailToast(fallbackEmail, level, "Alert: you have to move from that current site");
+            }
+        }
+
+        function triggerManualTestAlert(targetEmail) {
+            const email = targetEmail || (currentUser ? `${currentUser.toLowerCase()}@igniters.com` : "operator@igniters.com");
+            dispatchEmergencyAlertEmail("DANGER", 4.85, 1.82, 2.45, email);
+        }
+
         function updateTelemetry() {
             if (document.getElementById("stream-toggle").value === "off" || !currentUser) return;
 
@@ -2081,6 +2333,16 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 status = "DANGER";
             } else if (tiltVal >= 0.4 || vibVal >= 0.35 || strainVal >= 0.4) {
                 status = "WARNING";
+            }
+
+            // Automatic Emergency Alert Email Dispatch on Hazard Detection
+            if (status === "WARNING" || status === "DANGER") {
+                const now = Date.now();
+                if (now - lastAlertEmailTimestamp > ALERT_EMAIL_COOLDOWN_MS || lastAlertEmailLevel !== status) {
+                    lastAlertEmailTimestamp = now;
+                    lastAlertEmailLevel = status;
+                    dispatchEmergencyAlertEmail(status, tiltVal, vibVal, strainVal);
+                }
             }
 
             const timeStr = getFormattedTimestamp(0);

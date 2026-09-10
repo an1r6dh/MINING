@@ -1,7 +1,20 @@
 {
     "Admin": {
         "password": "godisgreat",
+        "email": "admin@igniters.com",
         "role": "Administrator",
+        "status": "Approved"
+    },
+    "User": {
+        "password": "user123",
+        "email": "user@igniters.com",
+        "role": "Operator",
+        "status": "Approved"
+    },
+    "Operator": {
+        "password": "operator123",
+        "email": "operator@igniters.com",
+        "role": "Operator",
         "status": "Approved"
     }
 }
