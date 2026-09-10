@@ -422,6 +422,28 @@
                 <div style="font-size: 0.85rem; font-weight: 500;" id="last-updated">Last Sync: --:--:--</div>
             </div>
 
+            
+            <!-- HARDWARE INTEGRATION STATUS BAR (ESP32-S3 HUB & ESP-NOW TDMA NODES) -->
+            <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 0.75rem 1.25rem; margin-bottom: 1rem; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem; box-shadow: 0 4px 15px rgba(0,0,0,0.25);">
+                <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                    <div id="hw-live-badge" style="display: inline-flex; align-items: center; gap: 7px; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.4); padding: 4px 12px; border-radius: 16px; font-size: 0.78rem; font-weight: 700; color: #38bdf8; transition: all 0.3s ease;">
+                        <span id="hw-live-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #38bdf8; display: inline-block; box-shadow: 0 0 8px #38bdf8;"></span>
+                        <span id="hw-live-text">PRE-HARDWARE VIRTUAL TDMA ENGINE</span>
+                    </div>
+                    <span style="font-size: 0.82rem; color: #94a3b8;">
+                        Hub: <strong style="color: #f1f5f9;">ESP32-S3 (central_hub_esp32s3_v6)</strong> &bull;
+                        RF: <strong style="color: #c084fc;">Wi-Fi Ch 1 (ESP-NOW)</strong> &bull;
+                        Slot 1: <strong style="color: #38bdf8;">Node 1 (MPU6050 + HC-SR04)</strong> &bull;
+                        Slot 2: <strong style="color: #f59e0b;">Node 2 (SW-420 Tripwire)</strong>
+                    </span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 12px; font-size: 0.78rem; color: #94a3b8;">
+                    <span>TDMA Superframe: <strong id="hw-frame-id" style="color: #38bdf8; font-family: monospace; font-size: 0.88rem;">#0001</strong> (1000ms)</span>
+                    <span style="border-left: 1px solid #334155; height: 16px;"></span>
+                    <span id="hw-kalman-status" style="color: #10b981; font-weight: 600;">1D Discrete Kalman Filter Active</span>
+                </div>
+            </div>
+
             <!-- CONTROLS CARD WITH SITE & NODE CASCADING SELECTORS -->
             <div class="controls-card">
                 <div class="controls-left">
@@ -460,48 +482,57 @@
             <!-- MANUAL SLIDERS CONTAINER (Visible only in Manual mode) -->
             <div id="manual-controls">
                 <div class="slider-group">
-                    <label>Filtered Tilt: <span id="val-manual-tilt">0.0</span> deg/m</label>
-                    <input type="range" id="slider-tilt" min="0" max="15" step="0.01" value="0.0" oninput="updateManualVal()">
+                    <label>Tilt Angle (MPU6050): <span id="val-manual-tilt">0.00</span> deg (Threshold: &ge; 5.0&deg;)</label>
+                    <input type="range" id="slider-tilt" min="0" max="15" step="0.05" value="0.0" oninput="updateManualVal()">
                 </div>
                 <div class="slider-group">
-                    <label>Filtered Vibration: <span id="val-manual-vib">0.0</span> g</label>
-                    <input type="range" id="slider-vib" min="0" max="6" step="0.01" value="0.0" oninput="updateManualVal()">
+                    <label>Vibration Accel (MPU6050): <span id="val-manual-vib">0.00</span> g (Threshold: &ge; 0.8g)</label>
+                    <input type="range" id="slider-vib" min="0" max="3" step="0.01" value="0.0" oninput="updateManualVal()">
                 </div>
                 <div class="slider-group">
-                    <label>Filtered Displacement: <span id="val-manual-strain">0.0</span> mm</label>
-                    <input type="range" id="slider-strain" min="0" max="8" step="0.01" value="0.0" oninput="updateManualVal()">
+                    <label>Roof Displacement (HC-SR04): <span id="val-manual-strain">0.0</span> mm (Threshold: &ge; 15.0mm)</label>
+                    <input type="range" id="slider-strain" min="0" max="30" step="0.1" value="0.0" oninput="updateManualVal()">
                 </div>
             </div>
 
-            <!-- METRICS GRID -->
+            <!-- METRICS GRID (HARDWARE TELEMETRY & KALMAN FILTER CHANNELS) -->
             <div class="metrics-grid">
                 <div class="metric-card">
                     <div class="metric-header">
-                        <span class="metric-title">Filtered Tilt</span>
+                        <span class="metric-title">Filtered Tilt (AngleX)</span>
                     </div>
-                    <div class="metric-value" id="val-tilt">0.0</div>
-                    <div class="metric-footer">Deg/m — Structural Gradient</div>
+                    <div class="metric-value"><span id="val-tilt">0.00</span><span style="font-size: 1.1rem; color: var(--text-muted); font-weight: 500;">&deg;</span></div>
+                    <div class="metric-footer">
+                        <span>MPU6050 I2C (21/22) &bull; kfTilt (Q:0.02, R:1.5)</span>
+                        <div id="sub-tilt" style="font-size: 0.72rem; color: #38bdf8; margin-top: 3px;">Raw: 0.00&deg; &bull; Filtered</div>
+                    </div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-header">
                         <span class="metric-title">Filtered Vibration</span>
                     </div>
-                    <div class="metric-value" id="val-vib">0.0</div>
-                    <div class="metric-footer">g — Seismic Acceleration</div>
+                    <div class="metric-value"><span id="val-vib">0.00</span><span style="font-size: 1.1rem; color: var(--text-muted); font-weight: 500;"> g</span></div>
+                    <div class="metric-footer">
+                        <span>Dynamic Accel &bull; kfVib (Q:0.05, R:2.0)</span>
+                        <div id="sub-vib" style="font-size: 0.72rem; color: #f59e0b; margin-top: 3px;">Raw: 0.00g &bull; Dynamic</div>
+                    </div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-header">
                         <span class="metric-title">Filtered Displacement</span>
                     </div>
-                    <div class="metric-value" id="val-strain">0.0</div>
-                    <div class="metric-footer">mm — Micro-Displacement</div>
+                    <div class="metric-value"><span id="val-strain">0.0</span><span style="font-size: 1.1rem; color: var(--text-muted); font-weight: 500;"> mm</span></div>
+                    <div class="metric-footer">
+                        <span>HC-SR04 Ultrasonic (5/18) &bull; kfDisp (Q:0.01)</span>
+                        <div id="sub-strain" style="font-size: 0.72rem; color: #10b981; margin-top: 3px;">Raw: 0.0mm &bull; Subsidence</div>
+                    </div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-header">
-                        <span class="metric-title">Risk Alerts (Buffer)</span>
+                        <span class="metric-title">Risk Alerts & Trips</span>
                     </div>
                     <div class="metric-value" id="val-alerts">0 / 0</div>
-                    <div class="metric-footer">Warnings / Danger Events</div>
+                    <div class="metric-footer">Threshold Breaches (&ge;5&deg; / &ge;0.8g / &ge;15mm)</div>
                 </div>
             </div>
 
@@ -872,11 +903,11 @@
                     },
                     {
                         "id": "NODE_02",
-                        "name": "West Slope Tilting Inclinometer",
+                        "name": "ESP32 Node 2 — SW-420 Tripwire Digital Latch",
                         "relLat": -0.002,
                         "relLng": 0.0015,
                         "active": true,
-                        "type": "Slope Inclinometer",
+                        "type": "Discrete Tripwire Node (TDMA Slot 2)",
                         "tilt": 0.0,
                         "vib": 0.0,
                         "strain": 0.0,
@@ -1648,29 +1679,210 @@
             updateTelemetry();
         }
 
-        function getSimulatedPayload() {
-            let tilt, vib, strain;
-            const site = MINING_SITES[selectedSiteKey] || MINING_SITES["site-1"];
-            const node = (site && site.nodes) ? site.nodes.find(n => n.id === selectedNodeId) : null;
-            const baseBattery = (node && node.battery !== undefined) ? node.battery : 94;
-
-            if (activeSimMode === "manual") {
-                tilt = parseFloat(document.getElementById("slider-tilt").value).toFixed(1);
-                vib = parseFloat(document.getElementById("slider-vib").value).toFixed(1);
-                strain = parseFloat(document.getElementById("slider-strain").value).toFixed(1);
-            } else {
-                // Baseline zero telemetry (no garbage random values)
-                tilt = (0.0).toFixed(1);
-                vib = (0.0).toFixed(1);
-                strain = (0.0).toFixed(1);
+        // ====================================================================================================
+        // HARDWARE EMBEDDED ENGINE: 1D DISCRETE KALMAN FILTER (MATCHING central_hub_esp32s3_v6.ino)
+        // ====================================================================================================
+        class DiscreteKalmanFilter1D {
+            constructor(processNoise = 0.02, measurementNoise = 1.5, estimationError = 1.0, initialVal = 0.0) {
+                this.q = processNoise;
+                this.r = measurementNoise;
+                this.p = estimationError;
+                this.x = initialVal;
+                this.k = 0.0;
+                this.initialized = false;
             }
 
+            update(measurement) {
+                if (!this.initialized) {
+                    this.x = measurement;
+                    this.initialized = true;
+                    return this.x;
+                }
+                this.p = this.p + this.q;
+                const denominator = this.p + this.r;
+                this.k = (Math.abs(denominator) > 1e-6) ? (this.p / denominator) : 0.5;
+                this.x = this.x + this.k * (measurement - this.x);
+                this.p = (1.0 - this.k) * this.p;
+                return this.x;
+            }
+
+            reset(initialVal = 0.0) {
+                this.x = initialVal;
+                this.p = 1.0;
+                this.initialized = false;
+            }
+        }
+
+        // Dedicated 1D Kalman Filter instances matching Central Hub firmware:
+        // kfTilt: Q=0.02, R=1.5
+        // kfVibration: Q=0.05, R=2.0
+        // kfDisplacement: Q=0.01, R=0.8
+        const kfTiltNode1 = new DiscreteKalmanFilter1D(0.02, 1.5);
+        const kfVibNode1 = new DiscreteKalmanFilter1D(0.05, 2.0);
+        const kfDispNode1 = new DiscreteKalmanFilter1D(0.01, 0.8);
+
+        // Hardware safety thresholds strictly matching central_hub_esp32s3_v6.ino
+        const CRITICAL_DISPLACEMENT_THRESH_MM = 15.0; // Critical rock mass displacement (mm)
+        const CRITICAL_TILT_THRESH_DEG = 5.0;         // Critical angular tilt (degrees)
+        const CRITICAL_VIBRATION_THRESH_G = 0.8;      // Critical vibration trigger (g)
+
+        let tdmaVirtualFrameId = 0;
+        let lastLiveHardwareSync = 0;
+        let liveHardwareData = null;
+
+        // Check for live physical hardware stream from Python Serial Bridge
+        async function checkLiveHardwareStream() {
+            try {
+                const targetEndpoint = (window.API_BASE_URL || "").replace(/\/+$/, "") + "/api/hardware_telemetry";
+                const res = await fetch(targetEndpoint, { method: "GET" });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && data.connected) {
+                        liveHardwareData = data;
+                        lastLiveHardwareSync = Date.now();
+                        const badge = document.getElementById("hw-live-badge");
+                        const badgeText = document.getElementById("hw-live-text");
+                        const badgeDot = document.getElementById("hw-live-dot");
+                        if (badgeText) badgeText.textContent = "LIVE HARDWARE CONNECTED (ESP32-S3 USB)";
+                        if (badge) {
+                            badge.style.background = "rgba(16, 185, 129, 0.18)";
+                            badge.style.borderColor = "rgba(16, 185, 129, 0.5)";
+                            badge.style.color = "#10b981";
+                        }
+                        if (badgeDot) {
+                            badgeDot.style.background = "#10b981";
+                            badgeDot.style.boxShadow = "0 0 10px #10b981";
+                        }
+                        const hwFrame = document.getElementById("hw-frame-id");
+                        if (hwFrame && data.frame_id) hwFrame.textContent = "#" + String(data.frame_id).padStart(4, "0");
+                        return;
+                    }
+                }
+            } catch(e) {}
+
+            // Pre-Hardware Virtual Mode
+            if (Date.now() - lastLiveHardwareSync > 4000) {
+                liveHardwareData = null;
+                const badge = document.getElementById("hw-live-badge");
+                const badgeText = document.getElementById("hw-live-text");
+                const badgeDot = document.getElementById("hw-live-dot");
+                if (badgeText) badgeText.textContent = "PRE-HARDWARE VIRTUAL TDMA ENGINE";
+                if (badge) {
+                    badge.style.background = "rgba(56, 189, 248, 0.12)";
+                    badge.style.borderColor = "rgba(56, 189, 248, 0.4)";
+                    badge.style.color = "#38bdf8";
+                }
+                if (badgeDot) {
+                    badgeDot.style.background = "#38bdf8";
+                    badgeDot.style.boxShadow = "0 0 8px #38bdf8";
+                }
+            }
+        }
+
+        // Periodic Hardware Gateway Polling
+        setInterval(checkLiveHardwareStream, 1500);
+
+        function getSimulatedPayload() {
+            tdmaVirtualFrameId++;
+            const hwFrame = document.getElementById("hw-frame-id");
+            if (hwFrame && !liveHardwareData) hwFrame.textContent = "#" + String(tdmaVirtualFrameId % 9999).padStart(4, "0");
+
+            const site = MINING_SITES[selectedSiteKey] || MINING_SITES["site-1"];
+            const node = (site && site.nodes) ? site.nodes.find(n => n.id === selectedNodeId) : null;
+            const baseBattery = (node && node.battery !== undefined) ? node.battery : 100;
+
+            // 1. If physical ESP32-S3 hardware is broadcasting via serial bridge, use its real readings!
+            if (liveHardwareData && liveHardwareData.connected) {
+                return {
+                    node_id: liveHardwareData.node_id || selectedNodeId,
+                    raw_tilt: liveHardwareData.tilt,
+                    raw_vib: liveHardwareData.vibration,
+                    raw_strain: liveHardwareData.displacement,
+                    filtered_tilt: liveHardwareData.tilt,
+                    filtered_vibration: liveHardwareData.vibration,
+                    filtered_strain: liveHardwareData.displacement,
+                    battery: baseBattery,
+                    is_hardware: true
+                };
+            }
+
+            // 2. Pre-Hardware Virtual TDMA Mode (faithful implementation of sensor_node_esp32_5.ino math)
+            let rawTilt = 0.0;
+            let rawVib = 0.0;
+            let rawDisp = 0.0;
+
+            if (selectedNodeId === "NODE_02") {
+                // Node 2 is a Discrete Tripwire Node (SW-420 sensor) with Digital Override (bypasses Kalman)
+                if (activeSimMode === "danger") {
+                    rawVib = 1.00; // Tripwire latched
+                    rawTilt = 5.20;
+                    rawDisp = 16.5;
+                } else if (activeSimMode === "warning") {
+                    rawVib = 0.45;
+                    rawTilt = 2.80;
+                    rawDisp = 9.2;
+                } else if (activeSimMode === "manual") {
+                    rawTilt = parseFloat(document.getElementById("slider-tilt").value || 0);
+                    rawVib = parseFloat(document.getElementById("slider-vib").value || 0);
+                    rawDisp = parseFloat(document.getElementById("slider-strain").value || 0);
+                } else {
+                    // Safe tripwire quiescent baseline
+                    rawVib = 0.00;
+                    rawTilt = 0.00;
+                    rawDisp = 0.00;
+                }
+
+                return {
+                    node_id: "NODE_02",
+                    raw_tilt: rawTilt,
+                    raw_vib: rawVib,
+                    raw_strain: rawDisp,
+                    filtered_tilt: rawTilt,
+                    filtered_vibration: rawVib,
+                    filtered_strain: rawDisp,
+                    battery: baseBattery,
+                    is_hardware: false
+                };
+            }
+
+            // NODE_01: Geotechnical Node (MPU6050 + HC-SR04 through 1D Kalman Filters)
+            if (activeSimMode === "manual") {
+                rawTilt = parseFloat(document.getElementById("slider-tilt").value || 0);
+                rawVib = parseFloat(document.getElementById("slider-vib").value || 0);
+                rawDisp = parseFloat(document.getElementById("slider-strain").value || 0);
+            } else if (activeSimMode === "danger") {
+                // Critical strata collapse scenario (all 3 sensors breach)
+                rawTilt = 5.35 + (Math.random() * 0.4 - 0.2);
+                rawVib = 0.95 + (Math.random() * 0.2 - 0.1);
+                rawDisp = 16.8 + (Math.random() * 0.6 - 0.3);
+            } else if (activeSimMode === "warning") {
+                // Moderate geotechnical drift
+                rawTilt = 2.90 + (Math.random() * 0.2 - 0.1);
+                rawVib = 0.48 + (Math.random() * 0.1 - 0.05);
+                rawDisp = 9.4 + (Math.random() * 0.4 - 0.2);
+            } else {
+                // Normal baseline: MPU6050 stationary with slight physical noise
+                rawTilt = 0.05 + (Math.random() * 0.08 - 0.04);
+                rawVib = 0.02 + (Math.random() * 0.03);
+                rawDisp = 0.3 + (Math.random() * 0.2 - 0.1);
+                if (rawDisp < 0) rawDisp = 0.0;
+            }
+
+            // Apply Discrete Kalman Filters matching central_hub_esp32s3_v6.ino
+            const filtTilt = kfTiltNode1.update(rawTilt);
+            const filtVib = kfVibNode1.update(rawVib);
+            const filtDisp = kfDispNode1.update(rawDisp);
+
             return {
-                node_id: selectedNodeId,
-                filtered_tilt: parseFloat(tilt),
-                filtered_vibration: parseFloat(vib),
-                filtered_strain: parseFloat(strain),
-                battery: baseBattery
+                node_id: "NODE_01",
+                raw_tilt: rawTilt,
+                raw_vib: rawVib,
+                raw_strain: rawDisp,
+                filtered_tilt: parseFloat(filtTilt.toFixed(2)),
+                filtered_vibration: parseFloat(filtVib.toFixed(2)),
+                filtered_strain: parseFloat(filtDisp.toFixed(1)),
+                battery: baseBattery,
+                is_hardware: false
             };
         }
 
@@ -2071,16 +2283,28 @@
             const payload = getSimulatedPayload();
             const currentBat = payload.battery !== undefined ? payload.battery : 100;
 
-            // Fast local threshold prediction (0ms rendering delay)
+            // Precise safety evaluation matching central_hub_esp32s3_v6.ino
             let status = "SAFE";
-            const tiltVal = parseFloat(payload.filtered_tilt);
-            const vibVal = parseFloat(payload.filtered_vibration);
-            const strainVal = parseFloat(payload.filtered_strain);
+            const tiltVal = parseFloat(payload.filtered_tilt || 0);
+            const vibVal = parseFloat(payload.filtered_vibration || 0);
+            const strainVal = parseFloat(payload.filtered_strain || 0);
 
-            if (tiltVal >= 4.0 || vibVal >= 1.5 || strainVal >= 2.0) {
+            // Critical thresholds: Disp >= 15mm, Tilt >= 5deg, Vib >= 0.8g
+            const isCriticalBreached = (strainVal >= CRITICAL_DISPLACEMENT_THRESH_MM) ||
+                                       (Math.abs(tiltVal) >= CRITICAL_TILT_THRESH_DEG) ||
+                                       (vibVal >= CRITICAL_VIBRATION_THRESH_G);
+
+            // Warning thresholds: Disp >= 8mm, Tilt >= 2.5deg, Vib >= 0.4g
+            const isWarningApproached = (strainVal >= 8.0) ||
+                                        (Math.abs(tiltVal) >= 2.5) ||
+                                        (vibVal >= 0.4);
+
+            if (isCriticalBreached) {
                 status = "DANGER";
-            } else if (tiltVal >= 0.4 || vibVal >= 0.35 || strainVal >= 0.4) {
+            } else if (isWarningApproached) {
                 status = "WARNING";
+            } else {
+                status = "SAFE";
             }
 
             // Automatic Emergency Alert Email Dispatch on Hazard Detection
@@ -2095,13 +2319,24 @@
 
             const timeStr = getFormattedTimestamp(0);
 
-                        // Metrics Update (Clean 0.0 Readout)
+            // Hardware Metrics Display (Kalman Filtered & Raw Channels)
             const elTilt = document.getElementById("val-tilt");
-            if (elTilt) elTilt.textContent = parseFloat(payload.filtered_tilt || 0).toFixed(1);
+            if (elTilt) elTilt.textContent = tiltVal.toFixed(2);
             const elVib = document.getElementById("val-vib");
-            if (elVib) elVib.textContent = parseFloat(payload.filtered_vibration || 0).toFixed(1);
+            if (elVib) elVib.textContent = vibVal.toFixed(2);
             const elStrain = document.getElementById("val-strain");
-            if (elStrain) elStrain.textContent = parseFloat(payload.filtered_strain || 0).toFixed(1);
+            if (elStrain) elStrain.textContent = strainVal.toFixed(1);
+
+            const rawT = (payload.raw_tilt !== undefined) ? payload.raw_tilt : tiltVal;
+            const rawV = (payload.raw_vib !== undefined) ? payload.raw_vib : vibVal;
+            const rawS = (payload.raw_strain !== undefined) ? payload.raw_strain : strainVal;
+
+            const subT = document.getElementById("sub-tilt");
+            if (subT) subT.textContent = `Raw: ${rawT.toFixed(2)}° • Filtered`;
+            const subV = document.getElementById("sub-vib");
+            if (subV) subV.textContent = `Raw: ${rawV.toFixed(2)}g • Dynamic`;
+            const subS = document.getElementById("sub-strain");
+            if (subS) subS.textContent = `Raw: ${rawS.toFixed(1)}mm • Subsidence`;
             document.getElementById("last-updated").textContent = "Last Sync: " + timeStr;
 
             if (status === "SAFE") safeCount++;
