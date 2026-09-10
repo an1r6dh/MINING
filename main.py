@@ -608,7 +608,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                     <p>Smart India Hackathon (SIH) Project 26025 — Real-Time IoT Telemetry & ML Risk Prediction</p>
                 </div>
                 <div style="font-size: 0.85rem; color: var(--text-muted); background: var(--bg-input); padding: 0.65rem 1.2rem; border-radius: 8px; border: 1px solid var(--border-color);" id="live-sub-info">
-                    Active Site: <strong style="color: var(--text-primary);">Jharia Sector 4</strong> | Connected Sensor: <strong style="color: var(--primary-accent);">NODE_01 (Pit Slope Inclinometer 01)</strong> | Power Source: <strong style="color: #10b981;"><span id="header-battery-icon"></span> <span id="header-battery">94% Battery</span></strong> | Model: <strong style="color: var(--primary-accent);">RandomForest (100 Trees)</strong>
+                    Active Site: <strong style="color: var(--text-primary);">Kolar Gold Fields</strong> | Connected Sensor: <strong style="color: var(--primary-accent);">NODE_01 (Deep Rock Mass Extensometer)</strong> | Power Source: <strong style="color: #10b981;"><span id="header-battery-icon"></span> <span id="header-battery">100% Battery</span></strong> | Model: <strong style="color: var(--primary-accent);">RandomForest (100 Trees)</strong>
                 </div>
             </div>
 
@@ -624,16 +624,13 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                     <div class="control-item">
                         <label>Select Mining Site</label>
                         <select id="live-site-selector" onchange="onLiveSiteChange()" style="font-weight: 700;">
-                            <option value="site-1">Jharia Coalfield — Sector 4 Open Pit</option>
-                            <option value="site-2">Singrauli Mining Complex — Shaft B</option>
-                            <option value="site-3">Korba Underground Mine — Sector 9</option>
-                            <option value="site-4">Kolar Strata Slope Zone — Pit 2</option>
+                            <option value="site-1">Kolar Gold Fields — Strata Slope Zone</option>
                         </select>
                     </div>
                     <div class="control-item">
                         <label>Select Sensor Node (20 Nodes/Site)</label>
                         <select id="live-node-selector" onchange="onLiveNodeChange()" style="min-width: 250px; font-weight: 600;">
-                            <!-- Populated dynamically with NODE_01 to NODE_20 -->
+                            <!-- Populated dynamically with NODE_01 and NODE_02 -->
                         </select>
                     </div>
                     <div class="control-item">
@@ -828,10 +825,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 <div style="display: flex; align-items: center; gap: 1rem;">
                     <label style="font-weight: 700; color: var(--text-primary);"> Select Mining Site:</label>
                     <select id="site-select" class="site-selector" onchange="changeMiningSite(this.value)">
-                        <option value="site-1">Jharia Coalfield — Sector 4 Open Pit</option>
-                        <option value="site-2">Singrauli Mining Complex — Shaft B</option>
-                        <option value="site-3">Korba Underground Mine — Sector 9</option>
-                        <option value="site-4">Kolar Strata Slope Zone — Pit 2</option>
+                        <option value="site-1">Kolar Gold Fields — Strata Slope Zone</option>
                     </select>
                 </div>
 
@@ -850,15 +844,15 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                     <div class="metric-header">
                         <span class="metric-title">Sector Name</span>
                     </div>
-                    <div class="metric-value" id="site-metric-name" style="font-size: 1.1rem; font-weight: 700; color: var(--primary-accent);">Jharia Sector 4</div>
-                    <div class="metric-footer" id="site-metric-coords">Lat: 23.7513° N, Lon: 86.4172° E</div>
+                    <div class="metric-value" id="site-metric-name" style="font-size: 1.1rem; font-weight: 700; color: var(--primary-accent);">Kolar Gold Fields</div>
+                    <div class="metric-footer" id="site-metric-coords">Lat: 12.9583° N, Lon: 78.2711° E</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-header">
                         <span class="metric-title">Monitored Sensor Nodes</span>
                     </div>
-                    <div class="metric-value" id="site-metric-nodes">5 Nodes</div>
-                    <div class="metric-footer" id="site-metric-active-count">4 Active | 1 Offline</div>
+                    <div class="metric-value" id="site-metric-nodes">2 Nodes</div>
+                    <div class="metric-footer" id="site-metric-active-count">2 Active | 0 Offline</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-header">
@@ -992,388 +986,71 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 
     <script>
         // Interactive Mining Sites & IoT Sensor Nodes Map System
-        const MINING_SITES = {
-    "site-1": {
-        "name": "Jharia Coalfield \u2014 Sector 4 Open Pit",
-        "shortName": "Jharia Sector 4",
-        "lat": 23.7513,
-        "lng": 86.4172,
-        "zoom": 15,
-        "coordsText": "Lat: 23.7513\u00b0 N, Lon: 86.4172\u00b0 E",
-        "zones": [
-            {
-                "name": "Sector 4-A Green Zone",
-                "status": "SAFE",
-                "relLat": 0.0005,
-                "relLng": 0.0008,
-                "radius": 240,
-                "label": "\ud83d\udfe2 SAFE ZONE \u2014 Normal Operational Sector"
-            },
-            {
-                "name": "Sector 4-B Yellow Zone",
-                "status": "WARNING",
-                "relLat": 0.0025,
-                "relLng": -0.0018,
-                "radius": 190,
-                "label": "\ud83d\udfe1 WARNING ZONE \u2014 Highwall Slope Watch"
+                const MINING_SITES = {
+            "site-1": {
+                "name": "Kolar Gold Fields — Strata Slope Zone",
+                "shortName": "Kolar Gold Fields",
+                "lat": 12.9583,
+                "lng": 78.2711,
+                "zoom": 15,
+                "coordsText": "Lat: 12.9583° N, Lon: 78.2711° E",
+                "zones": [
+                    {
+                        "name": "East Pit Green Zone",
+                        "status": "SAFE",
+                        "relLat": 0.0,
+                        "relLng": 0.001,
+                        "radius": 240,
+                        "label": "🟢 SAFE ZONE — Strata Stable"
+                    },
+                    {
+                        "name": "Fault Line Yellow Zone",
+                        "status": "WARNING",
+                        "relLat": -0.0015,
+                        "relLng": -0.0025,
+                        "radius": 170,
+                        "label": "🟡 WARNING ZONE — Micro-Vibration Fault"
+                    },
+                    {
+                        "name": "Pit Edge Red Zone",
+                        "status": "DANGER",
+                        "relLat": 0.0022,
+                        "relLng": -0.0018,
+                        "radius": 210,
+                        "label": "🔴 RED ZONE — Pit Edge Collapse Danger"
+                    }
+                ],
+                "nodes": [
+                    {
+                        "id": "NODE_01",
+                        "name": "Deep Rock Mass Extensometer",
+                        "relLat": 0.0015,
+                        "relLng": 0.0008,
+                        "active": true,
+                        "type": "Deep Rock Strain",
+                        "tilt": 0.0,
+                        "vib": 0.0,
+                        "strain": 0.0,
+                        "battery": 100,
+                        "status": "SAFE"
+                    },
+                    {
+                        "id": "NODE_02",
+                        "name": "West Slope Tilting Inclinometer",
+                        "relLat": -0.002,
+                        "relLng": 0.0015,
+                        "active": true,
+                        "type": "Slope Inclinometer",
+                        "tilt": 0.0,
+                        "vib": 0.0,
+                        "strain": 0.0,
+                        "battery": 100,
+                        "status": "SAFE"
+                    }
+                ]
             }
-        ],
-        "nodes": [
-            {
-                "id": "NODE_01",
-                "name": "Pit Slope Inclinometer",
-                "relLat": 0.0014,
-                "relLng": 0.0018,
-                "active": true,
-                "type": "Tilt & Strain Sensor",
-                "tilt": 0.0,
-                "vib": 0.0,
-                "strain": 0.0,
-                "battery": 94,
-                "status": "SAFE"
-            },
-            {
-                "id": "NODE_02",
-                "name": "North-West Strata Strain Gauge",
-                "relLat": -0.0015,
-                "relLng": 0.0020,
-                "active": true,
-                "type": "Multi-Axial Strain",
-                "tilt": 0.0,
-                "vib": 0.0,
-                "strain": 0.0,
-                "battery": 87,
-                "status": "SAFE"
-            },
-            {
-                "id": "NODE_03",
-                "name": "Highwall Inclinometer 3B",
-                "relLat": 0.0022,
-                "relLng": -0.0012,
-                "active": true,
-                "type": "Digital Inclinometer",
-                "tilt": 0.0,
-                "vib": 0.0,
-                "strain": 0.0,
-                "battery": 68,
-                "status": "WARNING"
-            },
-            {
-                "id": "NODE_04",
-                "name": "Seismic Accelerometer Cluster",
-                "relLat": -0.0018,
-                "relLng": -0.0010,
-                "active": true,
-                "type": "Tri-Axial Seismic",
-                "tilt": 0.0,
-                "vib": 0.0,
-                "strain": 0.0,
-                "battery": 91,
-                "status": "SAFE"
-            },
-            {
-                "id": "NODE_05",
-                "name": "Sub-surface Borehole Telemetry",
-                "relLat": 0.0002,
-                "relLng": -0.0022,
-                "active": false,
-                "type": "Borehole Extensometer",
-                "tilt": 0.0,
-                "vib": 0.0,
-                "strain": 0.0,
-                "battery": 0,
-                "status": "OFFLINE"
-            }
-        ]
-    },
-    "site-2": {
-        "name": "Singrauli Mining Complex \u2014 Shaft B",
-        "shortName": "Singrauli Shaft B",
-        "lat": 24.1994,
-        "lng": 82.6644,
-        "zoom": 15,
-        "coordsText": "Lat: 24.1994\u00b0 N, Lon: 82.6644\u00b0 E",
-        "zones": [
-            {
-                "name": "Shaft Bench Green Zone",
-                "status": "SAFE",
-                "relLat": -0.001,
-                "relLng": 0.0012,
-                "radius": 250,
-                "label": "\ud83d\udfe2 SAFE ZONE \u2014 Normal Shaft Operations"
-            },
-            {
-                "name": "South Ramp Red Zone",
-                "status": "DANGER",
-                "relLat": 0.002,
-                "relLng": -0.0025,
-                "radius": 220,
-                "label": "\ud83d\udd34 RED ZONE \u2014 CRITICAL SUBSIDENCE HAZARD"
-            }
-        ],
-        "nodes": [
-            {
-                "id": "NODE_06",
-                "name": "Shaft Wall Strain Node",
-                "relLat": 0.001,
-                "relLng": 0.001,
-                "active": true,
-                "type": "Wall Displacement",
-                "tilt": 0.0,
-                "vib": 0.0,
-                "strain": 0.0,
-                "battery": 92,
-                "status": "SAFE"
-            },
-            {
-                "id": "NODE_07",
-                "name": "Main Bench Slope Sensor",
-                "relLat": -0.0015,
-                "relLng": 0.0018,
-                "active": true,
-                "type": "Bench Inclinometer",
-                "tilt": 0.0,
-                "vib": 0.0,
-                "strain": 0.0,
-                "battery": 85,
-                "status": "SAFE"
-            },
-            {
-                "id": "NODE_08",
-                "name": "South Ramp Vibrational Array",
-                "relLat": 0.002,
-                "relLng": -0.0025,
-                "active": true,
-                "type": "Vibration Acceleration",
-                "tilt": 0.0,
-                "vib": 0.0,
-                "strain": 0.0,
-                "battery": 38,
-                "status": "DANGER"
-            },
-            {
-                "id": "NODE_09",
-                "name": "Overburden Dump Radar",
-                "relLat": -0.0028,
-                "relLng": -0.0012,
-                "active": true,
-                "type": "Dump Slope Radar",
-                "tilt": 0.0,
-                "vib": 0.0,
-                "strain": 0.0,
-                "battery": 74,
-                "status": "WARNING"
-            },
-            {
-                "id": "NODE_10",
-                "name": "Deep Shaft Strain Extensometer",
-                "relLat": 0.0005,
-                "relLng": 0.003,
-                "active": false,
-                "type": "Borehole Strain Gauge",
-                "tilt": 0.0,
-                "vib": 0.0,
-                "strain": 0.0,
-                "battery": 0,
-                "status": "OFFLINE"
-            }
-        ]
-    },
-    "site-3": {
-        "name": "Korba Underground Mine \u2014 Sector 9",
-        "shortName": "Korba Underground",
-        "lat": 22.3595,
-        "lng": 82.7501,
-        "zoom": 15,
-        "coordsText": "Lat: 22.3595\u00b0 N, Lon: 82.7501\u00b0 E",
-        "zones": [
-            {
-                "name": "Sector 9 Shaft Green Zone",
-                "status": "SAFE",
-                "relLat": 0.0008,
-                "relLng": 0.0012,
-                "radius": 260,
-                "label": "\ud83d\udfe2 SAFE ZONE \u2014 Roof Convergence Normal"
-            },
-            {
-                "name": "Pillar Stress Yellow Zone",
-                "status": "WARNING",
-                "relLat": -0.0012,
-                "relLng": -0.0015,
-                "radius": 180,
-                "label": "\ud83d\udfe1 WARNING ZONE \u2014 High Stress Tensor"
-            }
-        ],
-        "nodes": [
-            {
-                "id": "NODE_11",
-                "name": "Mine Roof Convergence Sensor",
-                "relLat": 0.0008,
-                "relLng": 0.0012,
-                "active": true,
-                "type": "Roof Extensometer",
-                "tilt": 0.0,
-                "vib": 0.0,
-                "strain": 0.0,
-                "battery": 96,
-                "status": "SAFE"
-            },
-            {
-                "id": "NODE_12",
-                "name": "Pillar Strain Gauge Alpha",
-                "relLat": -0.0012,
-                "relLng": -0.0015,
-                "active": true,
-                "type": "Pillar Stress Tensor",
-                "tilt": 0.0,
-                "vib": 0.0,
-                "strain": 0.0,
-                "battery": 79,
-                "status": "WARNING"
-            },
-            {
-                "id": "NODE_13",
-                "name": "Haulage Shaft Micro-Seismic",
-                "relLat": 0.0018,
-                "relLng": -0.002,
-                "active": true,
-                "type": "Micro-Seismic Array",
-                "tilt": 0.0,
-                "vib": 0.0,
-                "strain": 0.0,
-                "battery": 88,
-                "status": "SAFE"
-            },
-            {
-                "id": "NODE_14",
-                "name": "Sub-strata Stress Tensor",
-                "relLat": -0.0025,
-                "relLng": 0.002,
-                "active": true,
-                "type": "Strata Extensometer",
-                "tilt": 0.0,
-                "vib": 0.0,
-                "strain": 0.0,
-                "battery": 91,
-                "status": "SAFE"
-            },
-            {
-                "id": "NODE_15",
-                "name": "Roof Convergence Array Beta",
-                "relLat": 0.003,
-                "relLng": 0.0015,
-                "active": true,
-                "type": "Convergence Sensor",
-                "tilt": 0.0,
-                "vib": 0.0,
-                "strain": 0.0,
-                "battery": 72,
-                "status": "WARNING"
-            }
-        ]
-    },
-    "site-4": {
-        "name": "Kolar Strata Slope Zone \u2014 Pit 2",
-        "shortName": "Kolar Pit 2",
-        "lat": 12.9583,
-        "lng": 78.2711,
-        "zoom": 15,
-        "coordsText": "Lat: 12.9583\u00b0 N, Lon: 78.2711\u00b0 E",
-        "zones": [
-            {
-                "name": "East Pit Green Zone",
-                "status": "SAFE",
-                "relLat": 0.0,
-                "relLng": 0.001,
-                "radius": 240,
-                "label": "\ud83d\udfe2 SAFE ZONE \u2014 Strata Stable"
-            },
-            {
-                "name": "Fault Line Yellow Zone",
-                "status": "WARNING",
-                "relLat": -0.0015,
-                "relLng": -0.0025,
-                "radius": 170,
-                "label": "\ud83d\udfe1 WARNING ZONE \u2014 Micro-Vibration Fault"
-            },
-            {
-                "name": "Pit Edge Red Zone",
-                "status": "DANGER",
-                "relLat": 0.0022,
-                "relLng": -0.0018,
-                "radius": 210,
-                "label": "\ud83d\udd34 RED ZONE \u2014 Pit Edge Collapse Danger"
-            }
-        ],
-        "nodes": [
-            {
-                "id": "NODE_16",
-                "name": "Deep Rock Mass Extensometer",
-                "relLat": 0.0015,
-                "relLng": 0.0008,
-                "active": true,
-                "type": "Deep Rock Strain",
-                "tilt": 0.0,
-                "vib": 0.0,
-                "strain": 0.0,
-                "battery": 98,
-                "status": "SAFE"
-            },
-            {
-                "id": "NODE_17",
-                "name": "West Slope Tilting Inclinometer",
-                "relLat": -0.002,
-                "relLng": 0.0015,
-                "active": true,
-                "type": "Slope Inclinometer",
-                "tilt": 0.0,
-                "vib": 0.0,
-                "strain": 0.0,
-                "battery": 90,
-                "status": "SAFE"
-            },
-            {
-                "id": "NODE_18",
-                "name": "Pit Edge Ground Displacement",
-                "relLat": 0.0022,
-                "relLng": -0.0018,
-                "active": true,
-                "type": "Ground Displacement",
-                "tilt": 0.0,
-                "vib": 0.0,
-                "strain": 0.0,
-                "battery": 24,
-                "status": "DANGER"
-            },
-            {
-                "id": "NODE_19",
-                "name": "Fault Line Micro-Vibration",
-                "relLat": -0.0015,
-                "relLng": -0.0025,
-                "active": true,
-                "type": "Vibration Sensor",
-                "tilt": 0.0,
-                "vib": 0.0,
-                "strain": 0.0,
-                "battery": 72,
-                "status": "WARNING"
-            },
-            {
-                "id": "NODE_20",
-                "name": "Pit Rim Tilting Gauge",
-                "relLat": -0.0032,
-                "relLng": 0.003,
-                "active": false,
-                "type": "Inclinometer Array",
-                "tilt": 0.0,
-                "vib": 0.0,
-                "strain": 0.0,
-                "battery": 0,
-                "status": "OFFLINE"
-            }
-        ]
-    }
-};
+        };
+        MINING_SITES["site-4"] = MINING_SITES["site-1"];
 
         function getBatteryInfo(pct) {
             const val = pct !== undefined ? pct : 94;
@@ -1970,7 +1647,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             const nodeNum = parseInt((nodeId || "01").replace(/\\D/g, '')) || 1;
             
             // Resolve node battery from site definition
-            let nodeBat = 94;
+            let nodeBat = 100;
             for (let sk in MINING_SITES) {
                 if (MINING_SITES[sk].nodes) {
                     const matchNode = MINING_SITES[sk].nodes.find(n => n.id === nodeId);
@@ -2009,8 +1686,12 @@ HTML_DASHBOARD = """<!DOCTYPE html>
         }
 
         function preInitializeAllNodeBuffers() {
-            for (let i = 1; i <= 20; i++) {
-                const nid = `NODE_${String(i).padStart(2, '0')}`;
+            ["NODE_01", "NODE_02"].forEach(nid => {
+                if (!nodeHistoryBuffers[nid]) {
+                    nodeHistoryBuffers[nid] = initNodeHistoryBuffer(nid);
+                }
+            });
+        }`;
                 if (!nodeHistoryBuffers[nid]) {
                     nodeHistoryBuffers[nid] = initNodeHistoryBuffer(nid);
                 }
@@ -2043,7 +1724,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                         tilt: parseFloat(d.filtered_tilt || 0),
                         vib: parseFloat(d.filtered_vibration || 0),
                         strain: parseFloat(d.filtered_strain || 0),
-                        battery: 94,
+                        battery: 100,
                         status: d.status || "SAFE"
                     }));
                     renderTelemetryLogTable();
@@ -2297,7 +1978,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 
                 const marker = L.marker([nodeLat, nodeLng], { icon: customIcon }).addTo(leafletMap);
 
-                const batPct = node.battery !== undefined ? node.battery : (node.active ? 94 : 0);
+                const batPct = node.battery !== undefined ? node.battery : (node.active ? 100 : 0);
                 const bat = getBatteryInfo(batPct);
 
                 const popupContent = `
@@ -2392,7 +2073,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             if (document.getElementById("stream-toggle").value === "off" || !currentUser) return;
 
             const payload = getSimulatedPayload();
-            const currentBat = payload.battery !== undefined ? payload.battery : 94;
+            const currentBat = payload.battery !== undefined ? payload.battery : 100;
 
             // Fast local threshold prediction (0ms rendering delay)
             let status = "SAFE";
@@ -2559,7 +2240,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                         }
                     }
                 }
-                if (batVal === undefined) batVal = 94;
+                if (batVal === undefined) batVal = 100;
 
                 const bInfo = getBatteryInfo(batVal);
                 const displayBat = bInfo.text.replace(" (Low)", "").replace(" (Depleted)", "");

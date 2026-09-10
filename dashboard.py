@@ -344,17 +344,11 @@ elif page_view == "🗺️ Sites":
     site_choice = st.selectbox(
         "📍 Select Mining Site",
         [
-            "Jharia Coalfield — Sector 4 Open Pit",
-            "Singrauli Mining Complex — Shaft B",
-            "Korba Underground Mine — Sector 9",
             "Kolar Strata Slope Zone — Pit 2"
         ]
     )
 
     sites_data = {
-        "Jharia Coalfield — Sector 4 Open Pit": {"lat": 23.7513, "lon": 86.4172},
-        "Singrauli Mining Complex — Shaft B": {"lat": 24.1994, "lon": 82.6644},
-        "Korba Underground Mine — Sector 9": {"lat": 22.3595, "lon": 82.7501},
         "Kolar Strata Slope Zone — Pit 2": {"lat": 12.9583, "lon": 78.2711}
     }
 
@@ -362,18 +356,15 @@ elif page_view == "🗺️ Sites":
 
     col_m1, col_m2, col_m3 = st.columns(3)
     with col_m1:
-        st.metric("Sector Name", site_choice.split("—")[0].strip())
+        st.metric("Sector Name", "Kolar Strata Slope Zone")
     with col_m2:
-        st.metric("Monitored Sensor Nodes", "5 Nodes", "🟢 4 Active | ⚪ 1 Offline")
+        st.metric("Monitored Sensor Nodes", "2 Nodes", "🟢 2 Active | ⚪ 0 Offline")
     with col_m3:
         st.metric("Sector Hazard Level", "SAFE 🟢")
 
     map_df = pd.DataFrame([
-        {"lat": selected_site["lat"] + 0.0012, "lon": selected_site["lon"] + 0.0015, "Node": "NODE_01 (Active - SAFE)"},
-        {"lat": selected_site["lat"] - 0.0018, "lon": selected_site["lon"] + 0.0022, "Node": "NODE_02 (Active - SAFE)"},
-        {"lat": selected_site["lat"] + 0.0025, "lon": selected_site["lon"] - 0.0018, "Node": "NODE_03 (Active - WARNING)"},
-        {"lat": selected_site["lat"] - 0.0022, "lon": selected_site["lon"] - 0.0028, "Node": "NODE_04 (Active - SAFE)"},
-        {"lat": selected_site["lat"] + 0.0005, "lon": selected_site["lon"] - 0.0035, "Node": "NODE_05 (Offline)"}
+        {"lat": selected_site["lat"] + 0.0015, "lon": selected_site["lon"] + 0.0008, "Node": "NODE_01 (Active - 100% Battery)"},
+        {"lat": selected_site["lat"] - 0.0020, "lon": selected_site["lon"] + 0.0015, "Node": "NODE_02 (Active - 100% Battery)"}
     ])
 
     st.map(map_df, latitude="lat", longitude="lon", size=20)
