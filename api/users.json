@@ -4,59 +4,5 @@
         "email": "miningwithigniters@gmail.com",
         "role": "Administrator",
         "status": "Approved"
-    },
-    "Gladdy": {
-        "password": "••••••••",
-        "email": "gladdy@gmail.com",
-        "role": "Operator",
-        "status": "Approved"
-    },
-    "aniveda": {
-        "password": "••••••••",
-        "email": "aniveda.s@gmail.com",
-        "role": "Operator",
-        "status": "Approved"
-    },
-    "ANIRUDH XIT": {
-        "password": "••••••••",
-        "email": "anirudh.xit@igniters.com",
-        "role": "Inspector",
-        "status": "Approved"
-    },
-    "adi": {
-        "password": "••••••••",
-        "email": "adi@igniters.com",
-        "role": "Operator",
-        "status": "Approved"
-    },
-    "Neha": {
-        "password": "••••••••",
-        "email": "neha@igniters.com",
-        "role": "Inspector",
-        "status": "Approved"
-    },
-    "Swetha": {
-        "password": "••••••••",
-        "email": "swetha@igniters.com",
-        "role": "Operator",
-        "status": "Approved"
-    },
-    "Veeran": {
-        "password": "••••••••",
-        "email": "veeran@igniters.com",
-        "role": "Inspector",
-        "status": "Approved"
-    },
-    "User": {
-        "password": "user123",
-        "email": "user@igniters.com",
-        "role": "Operator",
-        "status": "Approved"
-    },
-    "Operator": {
-        "password": "operator123",
-        "email": "operator@igniters.com",
-        "role": "Operator",
-        "status": "Approved"
     }
 }

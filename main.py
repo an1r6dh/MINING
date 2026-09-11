@@ -364,17 +364,45 @@ def find_users_json_path():
     return os.path.join(BASE_DIR, "users.json")
 
 FALLBACK_USERS = {
-    "Admin": { "password": "godisgreat", "email": "miningwithigniters@gmail.com", "role": "Administrator", "status": "Approved" },
-    "Gladdy": { "password": "••••••••", "email": "gladdy@gmail.com", "role": "Operator", "status": "Approved" },
-    "aniveda": { "password": "••••••••", "email": "aniveda.s@gmail.com", "role": "Operator", "status": "Approved" },
-    "ANIRUDH XIT": { "password": "••••••••", "email": "anirudh.xit@igniters.com", "role": "Inspector", "status": "Approved" },
-    "adi": { "password": "••••••••", "email": "adi@igniters.com", "role": "Operator", "status": "Approved" },
-    "Neha": { "password": "••••••••", "email": "neha@igniters.com", "role": "Inspector", "status": "Approved" },
-    "Swetha": { "password": "••••••••", "email": "swetha@igniters.com", "role": "Operator", "status": "Approved" },
-    "Veeran": { "password": "••••••••", "email": "veeran@igniters.com", "role": "Inspector", "status": "Approved" },
-    "User": { "password": "user123", "email": "user@igniters.com", "role": "Operator", "status": "Approved" },
-    "Operator": { "password": "operator123", "email": "operator@igniters.com", "role": "Operator", "status": "Approved" }
+    "Admin": { "password": "godisgreat", "email": "miningwithigniters@gmail.com", "role": "Administrator", "status": "Approved" }
 }
+
+class RegisterUserPayload(BaseModel):
+    username: str
+    email: str
+    password: str = "••••••••"
+    role: str = "Operator"
+    status: str = "Approved"
+
+@app.post("/api/register_user")
+@app.post("/register_user")
+def register_user_api(payload: RegisterUserPayload):
+    users_path = find_users_json_path()
+    users = dict(FALLBACK_USERS)
+    if os.path.exists(users_path):
+        try:
+            with open(users_path, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+                if loaded:
+                    users.update(loaded)
+        except Exception:
+            pass
+    uname = payload.username.strip()
+    clean_email = payload.email.strip().lower()
+    users[uname] = {
+        "password": payload.password or "••••••••",
+        "email": clean_email,
+        "role": payload.role or "Operator",
+        "status": payload.status or "Approved"
+    }
+    for p in [users_path, os.path.join(BASE_DIR, "users.json"), os.path.join(BASE_DIR, "api", "users.json")]:
+        try:
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump(users, f, indent=4)
+        except Exception:
+            pass
+    return {"status": "success", "username": uname, "email": clean_email}
 
 @app.get("/api/users")
 @app.get("/users")
@@ -1343,10 +1371,9 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                     <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: flex-end;">
                         <div style="flex: 2; min-width: 250px;">
                             <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 5px; font-weight: 600;">Destination Email Address (Single or comma-separated list):</label>
-                            <input type="email" id="test-recipient-email" placeholder="e.g. aniveda.s@gmail.com, gladdy@gmail.com" style="width: 100%; padding: 0.6rem 0.85rem; border-radius: 6px; background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-primary); font-size: 0.88rem; outline: none;">
+                            <input type="email" id="test-recipient-email" placeholder="e.g. miningwithigniters@gmail.com, operator@example.com" style="width: 100%; padding: 0.6rem 0.85rem; border-radius: 6px; background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-primary); font-size: 0.88rem; outline: none;">
                             <div style="display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap;">
-                                <button type="button" onclick="document.getElementById('test-recipient-email').value='aniveda.s@gmail.com'" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8; font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; cursor: pointer;">Quick: aniveda.s@gmail.com</button>
-                                <button type="button" onclick="document.getElementById('test-recipient-email').value='gladdy@gmail.com'" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8; font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; cursor: pointer;">Quick: gladdy@gmail.com</button>
+                                <button type="button" onclick="document.getElementById('test-recipient-email').value='miningwithigniters@gmail.com'" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8; font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; cursor: pointer;">Quick: miningwithigniters@gmail.com</button>
                                 <button type="button" onclick="document.getElementById('test-recipient-email').value=getAllRegisteredPersonnelEmails().join(', ')" style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); color: #10b981; font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; cursor: pointer;">Quick: All Registered Users</button>
                             </div>
                         </div>
@@ -1545,10 +1572,59 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
         const SUPABASE_KEY = "sb_publishable_DS2T92fPyhKkhGyI41dtzA_qw2_m_3C";
         let supabaseClient = null;
 
+        async function fetchUsersFromCloud() {
+            if (!supabaseClient) return;
+            try {
+                const { data: suUsers, error } = await supabaseClient.from('users').select('*');
+                if (error) {
+                    console.warn("Supabase user query error:", error);
+                    return;
+                }
+                if (suUsers && suUsers.length > 0) {
+                    const cloudUsers = {
+                        "Admin": {
+                            password: "godisgreat",
+                            email: "miningwithigniters@gmail.com",
+                            role: "Administrator",
+                            status: "Approved",
+                            registeredAt: "2026-09-10 23:28:40"
+                        }
+                    };
+                    const existingUsers = (typeof getUsers === 'function') ? getUsers() : {};
+                    suUsers.forEach(u => {
+                        let userEmail = u.email || "";
+                        let cleanReg = u.registered_at || "";
+                        if (cleanReg) {
+                            const m = cleanReg.match(/\[email:([^\]]+)\]/) || cleanReg.match(/\|\s*email:\s*([^\s\]]+)/);
+                            if (m) {
+                                userEmail = m[1].trim();
+                                cleanReg = cleanReg.replace(/\[email:[^\]]+\]/, '').replace(/\|\s*email:[^\s\]]+/, '').trim();
+                            }
+                        }
+                        if (u.username === "Admin") {
+                            userEmail = "miningwithigniters@gmail.com";
+                        }
+                        cloudUsers[u.username] = {
+                            password: existingUsers[u.username]?.password || "••••••••",
+                            email: userEmail,
+                            role: u.role || "Operator",
+                            status: u.status || "Approved",
+                            registeredAt: cleanReg || u.registered_at || "Pre-configured"
+                        };
+                    });
+                    saveUsers(cloudUsers);
+                    console.log(`[SUPABASE] Cloud database synced: ${Object.keys(cloudUsers).length} active accounts loaded`);
+                }
+            } catch(err) {
+                console.warn("Cloud user fetch error:", err);
+            }
+        }
+
         try {
             if (window.supabase && window.supabase.createClient) {
                 supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-                console.log(" Supabase Cloud Database Connected!");
+                console.log("⚡ Supabase Cloud Database Connected!");
+                fetchUsersFromCloud();
             }
         } catch(e) {
             console.warn("Supabase init notice:", e);
@@ -1608,28 +1684,34 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
 
         // Authentication System — System Accounts & Local Storage Sync
         const DEFAULT_USERS = { 
-            "Admin": { password: "godisgreat", email: "miningwithigniters@gmail.com", role: "Administrator", status: "Approved", registeredAt: "2026-09-01 00:00:00" },
-            "Gladdy": { password: "••••••••", email: "gladdy@gmail.com", role: "Operator", status: "Approved", registeredAt: "11/09/2026, 11:17:12" },
-            "aniveda": { password: "••••••••", email: "aniveda.s@gmail.com", role: "Operator", status: "Approved", registeredAt: "2026-09-10 23:21:19" },
-            "ANIRUDH XIT": { password: "••••••••", email: "anirudh.xit@igniters.com", role: "Inspector", status: "Approved", registeredAt: "9/3/2026, 7:26:05 PM" },
-            "adi": { password: "••••••••", email: "adi@igniters.com", role: "Operator", status: "Approved", registeredAt: "9/3/2026, 7:38:28 PM" },
-            "Neha": { password: "••••••••", email: "neha@igniters.com", role: "Inspector", status: "Approved", registeredAt: "9/5/2026, 10:16:08 AM" },
-            "Swetha": { password: "••••••••", email: "swetha@igniters.com", role: "Operator", status: "Approved", registeredAt: "2026-09-06 22:57:19" },
-            "Veeran": { password: "••••••••", email: "veeran@igniters.com", role: "Inspector", status: "Approved", registeredAt: "2026-09-08 18:20:41" },
-            "User": { password: "user123", email: "user@igniters.com", role: "Operator", status: "Approved", registeredAt: "2026-09-01 00:00:00" },
-            "Operator": { password: "operator123", email: "operator@igniters.com", role: "Operator", status: "Approved", registeredAt: "2026-09-01 00:00:00" }
+            "Admin": { password: "godisgreat", email: "miningwithigniters@gmail.com", role: "Administrator", status: "Approved", registeredAt: "2026-09-01 00:00:00" }
         };
 
         function getUsers() {
             const saved = localStorage.getItem("mine_users");
             let users = saved ? JSON.parse(saved) : {};
-            Object.keys(DEFAULT_USERS).forEach(k => {
-                if (!users[k]) {
-                    users[k] = DEFAULT_USERS[k];
-                } else if (!users[k].email && DEFAULT_USERS[k].email) {
-                    users[k].email = DEFAULT_USERS[k].email;
+
+            // Purge legacy mock accounts so only Admin and newly registered users are preserved
+            const legacyAccounts = ["Gladdy", "aniveda", "ANIRUDH XIT", "adi", "Neha", "Swetha", "Veeran", "User", "Operator"];
+            let modified = false;
+            legacyAccounts.forEach(acc => {
+                if (users[acc]) {
+                    delete users[acc];
+                    modified = true;
                 }
             });
+
+            if (!users["Admin"]) {
+                users["Admin"] = DEFAULT_USERS["Admin"];
+                modified = true;
+            } else {
+                if (users["Admin"].email !== "miningwithigniters@gmail.com") {
+                    users["Admin"].email = "miningwithigniters@gmail.com";
+                    modified = true;
+                }
+            }
+
+            if (modified) saveUsers(users);
             return users;
         }
 
@@ -1783,7 +1865,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             switchPage('monitoring');
         }
 
-        function handleRegister(e) {
+        async function handleRegister(e) {
             if (e) {
                 e.preventDefault();
                 if (e.stopPropagation) e.stopPropagation();
@@ -1813,17 +1895,33 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                 registeredAt: regTime
             };
             saveUsers(users);
-            syncUserToSupabase(u, r, "Approved", regTime, email);
+
+            showAuthMsg("Registering and persisting account to Supabase database...", false);
+
+            try {
+                await syncUserToSupabase(u, r, "Approved", regTime, email);
+            } catch(err) {
+                console.warn("Supabase sync warning:", err);
+            }
+
+            // Also persist to Backend Database
+            try {
+                await fetch((window.API_BASE_URL || "").replace(/\/+$/, "") + "/api/register_user", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ username: u, email: email, password: p, role: r, status: "Approved" })
+                });
+            } catch(e) {}
 
             currentUser = u;
             localStorage.setItem("mine_current_user", u);
             logActiveSession(u, r);
-            showAuthMsg("Account registered successfully! Accessing console...", false);
+            showAuthMsg("Account registered and saved to Supabase! Accessing console...", false);
 
             setTimeout(() => {
                 checkAuth();
                 switchPage('monitoring');
-            }, 400);
+            }, 350);
         }
 
         
@@ -1910,7 +2008,17 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             if (supabaseClient) {
                 try {
                     const { data: suUsers } = await supabaseClient.from('users').select('*');
-                    if (suUsers && suUsers.length > 0) {
+                    if (suUsers) {
+                        // Rebuild registered users list purely from Supabase Cloud Database + Master Admin
+                        const cloudUsers = {
+                            "Admin": {
+                                password: "godisgreat",
+                                email: "miningwithigniters@gmail.com",
+                                role: "Administrator",
+                                status: "Approved",
+                                registeredAt: "2026-09-10 23:28:40"
+                            }
+                        };
                         suUsers.forEach(u => {
                             let userEmail = u.email || "";
                             let cleanReg = u.registered_at || "";
@@ -1921,17 +2029,18 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                                     cleanReg = cleanReg.replace(/\[email:[^\]]+\]/, '').replace(/\|\s*email:[^\s\]]+/, '').trim();
                                 }
                             }
-                            if (!userEmail && DEFAULT_USERS[u.username]?.email) {
-                                userEmail = DEFAULT_USERS[u.username].email;
+                            if (u.username === "Admin") {
+                                userEmail = "miningwithigniters@gmail.com";
                             }
-                            users[u.username] = {
+                            cloudUsers[u.username] = {
                                 password: users[u.username]?.password || "••••••••",
-                                email: userEmail || users[u.username]?.email || "",
+                                email: userEmail,
                                 role: u.role || "Operator",
                                 status: u.status || "Approved",
                                 registeredAt: cleanReg || u.registered_at || "Pre-configured"
                             };
                         });
+                        users = cloudUsers;
                         saveUsers(users);
                     }
 
@@ -2821,26 +2930,22 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             const users = getUsers();
             const emails = new Set();
 
-            // 1. Loop through all accounts registered in local storage
+            // 1. Loop through all verified registered accounts
             Object.keys(users).forEach(uname => {
                 const u = users[uname];
                 if (u && u.email && u.email.includes("@")) {
                     const clean = u.email.trim().toLowerCase();
-                    // Exclude master sender email from the recipient list
-                    if (clean !== "miningwithigniters@gmail.com") {
-                        emails.add(clean);
-                    }
+                    emails.add(clean);
                 }
             });
 
-            // 2. Fallback: if no non-master accounts exist yet, check default personnel accounts
+            // If other registered users exist, exclude the sender (Admin) email
+            if (emails.size > 1 && emails.has("miningwithigniters@gmail.com")) {
+                emails.delete("miningwithigniters@gmail.com");
+            }
+
             if (emails.size === 0) {
-                if (users["User"] && users["User"].email && users["User"].email !== "miningwithigniters@gmail.com") {
-                    emails.add(users["User"].email);
-                }
-                if (users["Operator"] && users["Operator"].email && users["Operator"].email !== "miningwithigniters@gmail.com") {
-                    emails.add(users["Operator"].email);
-                }
+                emails.add("miningwithigniters@gmail.com");
             }
 
             return Array.from(emails);
@@ -2902,7 +3007,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
 
                 // If still empty (e.g. only Admin exists), fallback to operator
                 if (recipientList.length === 0) {
-                    recipientList = ["operator@igniters.com"];
+                    recipientList = ["miningwithigniters@gmail.com"];
                 }
 
                 const currentSite = MINING_SITES[selectedSiteKey] || MINING_SITES["site-1"];
