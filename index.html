@@ -426,9 +426,9 @@
             <!-- HARDWARE INTEGRATION STATUS BAR (ESP32-S3 HUB & ESP-NOW TDMA NODES) -->
             <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 0.75rem 1.25rem; margin-bottom: 1rem; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem; box-shadow: 0 4px 15px rgba(0,0,0,0.25);">
                 <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-                    <div id="hw-live-badge" style="display: inline-flex; align-items: center; gap: 7px; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.4); padding: 4px 12px; border-radius: 16px; font-size: 0.78rem; font-weight: 700; color: #38bdf8; transition: all 0.3s ease;">
-                        <span id="hw-live-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #38bdf8; display: inline-block; box-shadow: 0 0 8px #38bdf8;"></span>
-                        <span id="hw-live-text">PRE-HARDWARE VIRTUAL TDMA ENGINE</span>
+                    <div id="hw-live-badge" style="display: inline-flex; align-items: center; gap: 7px; background: rgba(148, 163, 184, 0.12); border: 1px solid rgba(148, 163, 184, 0.35); padding: 4px 12px; border-radius: 16px; font-size: 0.78rem; font-weight: 700; color: #94a3b8; transition: all 0.3s ease;">
+                        <span id="hw-live-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #94a3b8; display: inline-block; box-shadow: 0 0 6px #94a3b8;"></span>
+                        <span id="hw-live-text">AWAITING PHYSICAL HARDWARE (0.000 IDLE)</span>
                     </div>
                     <span style="font-size: 0.82rem; color: #94a3b8;">
                         Hub: <strong style="color: #f1f5f9;">ESP32-S3 (central_hub_esp32s3_v6)</strong> &bull;
@@ -438,7 +438,7 @@
                     </span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 12px; font-size: 0.78rem; color: #94a3b8;">
-                    <span>TDMA Superframe: <strong id="hw-frame-id" style="color: #38bdf8; font-family: monospace; font-size: 0.88rem;">#0001</strong> (1000ms)</span>
+                    <span>TDMA Superframe: <strong id="hw-frame-id" style="color: #94a3b8; font-family: monospace; font-size: 0.88rem;">#0000 (0.000 Idle)</strong></span>
                     <span style="border-left: 1px solid #334155; height: 16px;"></span>
                     <span id="hw-kalman-status" style="color: #10b981; font-weight: 600;">1D Discrete Kalman Filter Active</span>
                 </div>
@@ -501,30 +501,30 @@
                     <div class="metric-header">
                         <span class="metric-title">Filtered Tilt (AngleX)</span>
                     </div>
-                    <div class="metric-value"><span id="val-tilt">0.00</span><span style="font-size: 1.1rem; color: var(--text-muted); font-weight: 500;">&deg;</span></div>
+                    <div class="metric-value"><span id="val-tilt">0.000</span><span style="font-size: 1.1rem; color: var(--text-muted); font-weight: 500;">&deg;</span></div>
                     <div class="metric-footer">
                         <span>MPU6050 I2C (21/22) &bull; kfTilt (Q:0.02, R:1.5)</span>
-                        <div id="sub-tilt" style="font-size: 0.72rem; color: #38bdf8; margin-top: 3px;">Raw: 0.00&deg; &bull; Filtered</div>
+                        <div id="sub-tilt" style="font-size: 0.72rem; color: #38bdf8; margin-top: 3px;">Raw: 0.000&deg; &bull; Standby (0.000)</div>
                     </div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-header">
                         <span class="metric-title">Filtered Vibration</span>
                     </div>
-                    <div class="metric-value"><span id="val-vib">0.00</span><span style="font-size: 1.1rem; color: var(--text-muted); font-weight: 500;"> g</span></div>
+                    <div class="metric-value"><span id="val-vib">0.000</span><span style="font-size: 1.1rem; color: var(--text-muted); font-weight: 500;"> g</span></div>
                     <div class="metric-footer">
                         <span>Dynamic Accel &bull; kfVib (Q:0.05, R:2.0)</span>
-                        <div id="sub-vib" style="font-size: 0.72rem; color: #f59e0b; margin-top: 3px;">Raw: 0.00g &bull; Dynamic</div>
+                        <div id="sub-vib" style="font-size: 0.72rem; color: #f59e0b; margin-top: 3px;">Raw: 0.000g &bull; Standby (0.000)</div>
                     </div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-header">
                         <span class="metric-title">Filtered Displacement</span>
                     </div>
-                    <div class="metric-value"><span id="val-strain">0.0</span><span style="font-size: 1.1rem; color: var(--text-muted); font-weight: 500;"> mm</span></div>
+                    <div class="metric-value"><span id="val-strain">0.000</span><span style="font-size: 1.1rem; color: var(--text-muted); font-weight: 500;"> mm</span></div>
                     <div class="metric-footer">
                         <span>HC-SR04 Ultrasonic (5/18) &bull; kfDisp (Q:0.01)</span>
-                        <div id="sub-strain" style="font-size: 0.72rem; color: #10b981; margin-top: 3px;">Raw: 0.0mm &bull; Subsidence</div>
+                        <div id="sub-strain" style="font-size: 0.72rem; color: #10b981; margin-top: 3px;">Raw: 0.000mm &bull; Standby (0.000)</div>
                     </div>
                 </div>
                 <div class="metric-card">
@@ -817,8 +817,13 @@
                     </p>
                     <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: flex-end;">
                         <div style="flex: 2; min-width: 250px;">
-                            <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 5px; font-weight: 600;">Destination Email Address:</label>
-                            <input type="email" id="test-recipient-email" placeholder="e.g. test@gmail.com, your_email@domain.com" style="width: 100%; padding: 0.6rem 0.85rem; border-radius: 6px; background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-primary); font-size: 0.88rem; outline: none;">
+                            <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 5px; font-weight: 600;">Destination Email Address (Single or comma-separated list):</label>
+                            <input type="email" id="test-recipient-email" placeholder="e.g. aniveda.s@gmail.com, gladdy@gmail.com" style="width: 100%; padding: 0.6rem 0.85rem; border-radius: 6px; background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-primary); font-size: 0.88rem; outline: none;">
+                            <div style="display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap;">
+                                <button type="button" onclick="document.getElementById('test-recipient-email').value='aniveda.s@gmail.com'" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8; font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; cursor: pointer;">Quick: aniveda.s@gmail.com</button>
+                                <button type="button" onclick="document.getElementById('test-recipient-email').value='gladdy@gmail.com'" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8; font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; cursor: pointer;">Quick: gladdy@gmail.com</button>
+                                <button type="button" onclick="document.getElementById('test-recipient-email').value=getAllRegisteredPersonnelEmails().join(', ')" style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); color: #10b981; font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; cursor: pointer;">Quick: All Registered Users</button>
+                            </div>
                         </div>
                         <div style="flex: 1; min-width: 150px;">
                             <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 5px; font-weight: 600;">Alert Severity:</label>
@@ -1059,13 +1064,18 @@
         async function syncUserToSupabase(username, role, status, registeredAt, email) {
             if (!supabaseClient) return;
             try {
+                const users = (typeof getUsers === 'function') ? getUsers() : {};
+                const cleanEmail = (email || (users[username] ? users[username].email : "") || "").trim().toLowerCase();
+                const baseReg = (registeredAt || new Date().toLocaleString()).replace(/\[email:[^\]]+\]/, '').replace(/\|\s*email:[^\s\]]+/, '').trim();
+                const regPayload = cleanEmail ? `${baseReg} [email:${cleanEmail}]` : baseReg;
+
                 await supabaseClient.from('users').upsert([{
                     username: username,
-                    email: email || '',
-                    role: role,
-                    status: status,
-                    registered_at: registeredAt
+                    role: role || "Operator",
+                    status: status || "Approved",
+                    registered_at: regPayload
                 }], { onConflict: 'username' });
+                console.log(`[SUPABASE] User "${username}" synced with email metadata`);
             } catch(err) {
                 console.warn("Supabase user sync notice:", err);
             }
@@ -1074,6 +1084,13 @@
         // Authentication System — System Accounts & Local Storage Sync
         const DEFAULT_USERS = { 
             "Admin": { password: "godisgreat", email: "miningwithigniters@gmail.com", role: "Administrator", status: "Approved", registeredAt: "2026-09-01 00:00:00" },
+            "Gladdy": { password: "••••••••", email: "gladdy@gmail.com", role: "Operator", status: "Approved", registeredAt: "11/09/2026, 11:17:12" },
+            "aniveda": { password: "••••••••", email: "aniveda.s@gmail.com", role: "Operator", status: "Approved", registeredAt: "2026-09-10 23:21:19" },
+            "ANIRUDH XIT": { password: "••••••••", email: "anirudh.xit@igniters.com", role: "Inspector", status: "Approved", registeredAt: "9/3/2026, 7:26:05 PM" },
+            "adi": { password: "••••••••", email: "adi@igniters.com", role: "Operator", status: "Approved", registeredAt: "9/3/2026, 7:38:28 PM" },
+            "Neha": { password: "••••••••", email: "neha@igniters.com", role: "Inspector", status: "Approved", registeredAt: "9/5/2026, 10:16:08 AM" },
+            "Swetha": { password: "••••••••", email: "swetha@igniters.com", role: "Operator", status: "Approved", registeredAt: "2026-09-06 22:57:19" },
+            "Veeran": { password: "••••••••", email: "veeran@igniters.com", role: "Inspector", status: "Approved", registeredAt: "2026-09-08 18:20:41" },
             "User": { password: "user123", email: "user@igniters.com", role: "Operator", status: "Approved", registeredAt: "2026-09-01 00:00:00" },
             "Operator": { password: "operator123", email: "operator@igniters.com", role: "Operator", status: "Approved", registeredAt: "2026-09-01 00:00:00" }
         };
@@ -1084,7 +1101,7 @@
             Object.keys(DEFAULT_USERS).forEach(k => {
                 if (!users[k]) {
                     users[k] = DEFAULT_USERS[k];
-                } else if (!users[k].email) {
+                } else if (!users[k].email && DEFAULT_USERS[k].email) {
                     users[k].email = DEFAULT_USERS[k].email;
                 }
             });
@@ -1331,6 +1348,35 @@
             } catch(err) {}
         }
 
+                async function promptEditUserEmail(uname) {
+            const users = getUsers();
+            const current = (users[uname] && users[uname].email) ? users[uname].email : (DEFAULT_USERS[uname]?.email || "");
+            const newEmail = prompt(`Enter or update email address for user "${uname}":`, current);
+            if (newEmail === null) return;
+            const clean = newEmail.trim().toLowerCase();
+            if (clean && !clean.includes("@")) {
+                alert("Please enter a valid email address with @ and domain.");
+                return;
+            }
+            if (!users[uname]) users[uname] = { role: "Operator", status: "Approved" };
+            users[uname].email = clean;
+            saveUsers(users);
+            await syncUserToSupabase(uname, users[uname].role, users[uname].status, users[uname].registeredAt, clean);
+            renderAdminPanel();
+            alert(`Email address for "${uname}" updated to: ${clean || 'None'}`);
+        }
+
+        function broadcastAlertToAllUsers() {
+            const list = getAllRegisteredPersonnelEmails();
+            if (list.length === 0) {
+                alert("No registered user emails found. Please update user emails in the table first.");
+                return;
+            }
+            const confirmed = confirm(`Broadcast emergency evacuation alert from master email (miningwithigniters@gmail.com) to all ${list.length} registered personnel:\n\n${list.join("\n")}\n\nProceed?`);
+            if (!confirmed) return;
+            dispatchEmergencyAlertEmail("DANGER", 5.24, 2.15, 3.10, list.join(", "));
+        }
+
         async function renderAdminPanel() {
             let users = getUsers();
             let sessions = getSessions();
@@ -1341,12 +1387,24 @@
                     const { data: suUsers } = await supabaseClient.from('users').select('*');
                     if (suUsers && suUsers.length > 0) {
                         suUsers.forEach(u => {
+                            let userEmail = u.email || "";
+                            let cleanReg = u.registered_at || "";
+                            if (cleanReg) {
+                                const m = cleanReg.match(/\[email:([^\]]+)\]/) || cleanReg.match(/\|\s*email:\s*([^\s\]]+)/);
+                                if (m) {
+                                    userEmail = m[1].trim();
+                                    cleanReg = cleanReg.replace(/\[email:[^\]]+\]/, '').replace(/\|\s*email:[^\s\]]+/, '').trim();
+                                }
+                            }
+                            if (!userEmail && DEFAULT_USERS[u.username]?.email) {
+                                userEmail = DEFAULT_USERS[u.username].email;
+                            }
                             users[u.username] = {
                                 password: users[u.username]?.password || "••••••••",
-                                email: u.email || users[u.username]?.email || "",
-                                role: u.role,
-                                status: u.status,
-                                registeredAt: u.registered_at
+                                email: userEmail || users[u.username]?.email || "",
+                                role: u.role || "Operator",
+                                status: u.status || "Approved",
+                                registeredAt: cleanReg || u.registered_at || "Pre-configured"
                             };
                         });
                         saveUsers(users);
@@ -1393,7 +1451,12 @@
                 pendingTbody.innerHTML = pendingList.map(u => `
                     <tr>
                         <td><strong>${u.username}</strong></td>
-                        <td><span style="color: var(--primary-accent); font-family: monospace; font-size: 0.82rem;">${u.email || (u.username.toLowerCase() + '@igniters.com')}</span></td>
+                        <td>
+                            <div style="display: inline-flex; align-items: center; gap: 6px;">
+                                <span style="color: var(--primary-accent); font-family: monospace; font-size: 0.82rem; font-weight: 600;">${u.email || '<em style="color:#94a3b8;">No email registered</em>'}</span>
+                                <button onclick="promptEditUserEmail('${u.username}')" title="Edit Email" style="background: none; border: none; cursor: pointer; color: #94a3b8; font-size: 0.8rem; padding: 2px 4px; border-radius: 4px;">✏️</button>
+                            </div>
+                        </td>
                         <td><span class="user-badge">${u.role}</span></td>
                         <td>${u.registeredAt || 'Just now'}</td>
                         <td>
@@ -1411,20 +1474,25 @@
             } else {
                 usersTbody.innerHTML = Object.keys(users).map(uname => {
                     const u = users[uname];
-                    const userEmail = u.email || (uname.toLowerCase() + '@igniters.com');
+                    const userEmail = u.email || DEFAULT_USERS[uname]?.email || "";
                     const isApproved = (u.status === "Approved" || uname === "Admin");
                     return `
                         <tr>
                             <td><strong>${uname}</strong></td>
-                            <td><span style="color: var(--primary-accent); font-family: monospace; font-size: 0.82rem;">${userEmail}</span></td>
+                            <td>
+                                <div style="display: inline-flex; align-items: center; gap: 6px;">
+                                    <span style="color: var(--primary-accent); font-family: monospace; font-size: 0.82rem; font-weight: 600;">${userEmail || '<em style="color:#94a3b8;">No email registered</em>'}</span>
+                                    <button onclick="promptEditUserEmail('${uname}')" title="Edit Email" style="background: none; border: none; cursor: pointer; color: #94a3b8; font-size: 0.8rem; padding: 2px 4px; border-radius: 4px;" onmouseover="this.style.color='#38bdf8'" onmouseout="this.style.color='#94a3b8'">✏️</button>
+                                </div>
+                            </td>
                             <td><span class="user-badge">${u.role || 'Operator'}</span></td>
                             <td><span class="badge ${isApproved ? 'SAFE' : 'WARNING'}">${isApproved ? 'APPROVED' : 'PENDING'}</span></td>
                             <td>${u.registeredAt || 'Pre-configured'}</td>
                             <td>
                                 ${uname === 'Admin' ? `
-                                    <button onclick="triggerManualTestAlert('${userEmail}')" style="background: rgba(220,38,38,0.2); color: #f87171; border: 1px solid rgba(220,38,38,0.4); padding: 0.3rem 0.60rem; border-radius: 6px; font-size: 0.78rem; font-weight: 600; cursor: pointer;">🚨 Test Alert</button>
+                                    <button onclick="broadcastAlertToAllUsers()" style="background: rgba(220,38,38,0.25); color: #fca5a5; border: 1px solid rgba(220,38,38,0.5); padding: 0.35rem 0.75rem; border-radius: 6px; font-size: 0.78rem; font-weight: 700; cursor: pointer;" title="Send live emergency evacuation alert from miningwithigniters@gmail.com to all registered users">🚨 Broadcast All Users</button>
                                 ` : `
-                                    <button onclick="triggerManualTestAlert('${userEmail}')" style="background: rgba(220,38,38,0.2); color: #f87171; border: 1px solid rgba(220,38,38,0.4); padding: 0.3rem 0.60rem; border-radius: 6px; font-size: 0.78rem; font-weight: 600; cursor: pointer; margin-right: 0.3rem;">🚨 Alert</button>
+                                    <button onclick="triggerManualTestAlert('${userEmail}', '${uname}')" style="background: rgba(220,38,38,0.2); color: #f87171; border: 1px solid rgba(220,38,38,0.4); padding: 0.3rem 0.60rem; border-radius: 6px; font-size: 0.78rem; font-weight: 600; cursor: pointer; margin-right: 0.3rem;" title="Send live evacuation alert from miningwithigniters@gmail.com directly to ${uname} (${userEmail})">🚨 Alert</button>
                                     <button onclick="toggleUserStatus('${uname}')" style="background: var(--primary-accent); color: #fff; border: none; padding: 0.3rem 0.60rem; border-radius: 6px; font-size: 0.78rem; font-weight: 600; cursor: pointer; margin-right: 0.3rem;">${isApproved ? 'Revoke' : 'Approve'}</button>
                                     <button onclick="deleteUser('${uname}')" style="background: transparent; color: #ef4444; border: 1px solid #ef4444; padding: 0.3rem 0.60rem; border-radius: 6px; font-size: 0.78rem; font-weight: 600; cursor: pointer;">Delete</button>
                                 `}
@@ -1457,7 +1525,7 @@
             if (users[uname]) {
                 users[uname].status = "Approved";
                 saveUsers(users);
-                await syncUserToSupabase(uname, users[uname].role, "Approved", users[uname].registeredAt);
+                await syncUserToSupabase(uname, users[uname].role, "Approved", users[uname].registeredAt, users[uname].email);
                 renderAdminPanel();
             }
         }
@@ -1472,7 +1540,7 @@
                 const newStatus = (users[uname].status === "Approved") ? "Pending" : "Approved";
                 users[uname].status = newStatus;
                 saveUsers(users);
-                await syncUserToSupabase(uname, users[uname].role, newStatus, users[uname].registeredAt);
+                await syncUserToSupabase(uname, users[uname].role, newStatus, users[uname].registeredAt, users[uname].email);
                 renderAdminPanel();
             }
         }
@@ -1832,22 +1900,24 @@
                 }
             } catch(e) {}
 
-            // Pre-Hardware Virtual Mode
+            // Physical Hardware Stream Inactive / Standby
             if (Date.now() - lastLiveHardwareSync > 4000) {
                 liveHardwareData = null;
                 const badge = document.getElementById("hw-live-badge");
                 const badgeText = document.getElementById("hw-live-text");
                 const badgeDot = document.getElementById("hw-live-dot");
-                if (badgeText) badgeText.textContent = "PRE-HARDWARE VIRTUAL TDMA ENGINE";
+                if (badgeText) badgeText.textContent = "AWAITING PHYSICAL HARDWARE (0.000 IDLE)";
                 if (badge) {
-                    badge.style.background = "rgba(56, 189, 248, 0.12)";
-                    badge.style.borderColor = "rgba(56, 189, 248, 0.4)";
-                    badge.style.color = "#38bdf8";
+                    badge.style.background = "rgba(148, 163, 184, 0.12)";
+                    badge.style.borderColor = "rgba(148, 163, 184, 0.35)";
+                    badge.style.color = "#94a3b8";
                 }
                 if (badgeDot) {
-                    badgeDot.style.background = "#38bdf8";
-                    badgeDot.style.boxShadow = "0 0 8px #38bdf8";
+                    badgeDot.style.background = "#94a3b8";
+                    badgeDot.style.boxShadow = "0 0 6px #94a3b8";
                 }
+                const hwFrame = document.getElementById("hw-frame-id");
+                if (hwFrame) hwFrame.textContent = "#0000 (0.000 Idle)";
             }
         }
 
@@ -1857,7 +1927,6 @@
         function getSimulatedPayload() {
             tdmaVirtualFrameId++;
             const hwFrame = document.getElementById("hw-frame-id");
-            if (hwFrame && !liveHardwareData) hwFrame.textContent = "#" + String(tdmaVirtualFrameId % 9999).padStart(4, "0");
 
             const site = MINING_SITES[selectedSiteKey] || MINING_SITES["site-1"];
             const node = (site && site.nodes) ? site.nodes.find(n => n.id === selectedNodeId) : null;
@@ -1865,43 +1934,48 @@
 
             // 1. If physical ESP32-S3 hardware is broadcasting via serial bridge, use its real readings!
             if (liveHardwareData && liveHardwareData.connected) {
+                if (hwFrame) hwFrame.textContent = "#" + String(liveHardwareData.frame_id || (tdmaVirtualFrameId % 9999)).padStart(4, "0");
+                const realTilt = parseFloat((liveHardwareData.tilt || 0).toFixed(3));
+                const realVib = parseFloat((liveHardwareData.vibration || 0).toFixed(3));
+                const realDisp = parseFloat((liveHardwareData.displacement || 0).toFixed(3));
                 return {
                     node_id: liveHardwareData.node_id || selectedNodeId,
-                    raw_tilt: liveHardwareData.tilt,
-                    raw_vib: liveHardwareData.vibration,
-                    raw_strain: liveHardwareData.displacement,
-                    filtered_tilt: liveHardwareData.tilt,
-                    filtered_vibration: liveHardwareData.vibration,
-                    filtered_strain: liveHardwareData.displacement,
+                    raw_tilt: realTilt,
+                    raw_vib: realVib,
+                    raw_strain: realDisp,
+                    filtered_tilt: realTilt,
+                    filtered_vibration: realVib,
+                    filtered_strain: realDisp,
                     battery: baseBattery,
                     is_hardware: true
                 };
             }
 
-            // 2. Pre-Hardware Virtual TDMA Mode (faithful implementation of sensor_node_esp32_5.ino math)
-            let rawTilt = 0.0;
-            let rawVib = 0.0;
-            let rawDisp = 0.0;
+            if (hwFrame) hwFrame.textContent = "#0000 (0.000 Idle)";
+
+            // 2. Hardware Disconnected: strictly 0.000 in Dynamic/Safe mode!
+            let rawTilt = 0.000;
+            let rawVib = 0.000;
+            let rawDisp = 0.000;
 
             if (selectedNodeId === "NODE_02") {
-                // Node 2 is a Discrete Tripwire Node (SW-420 sensor) with Digital Override (bypasses Kalman)
                 if (activeSimMode === "danger") {
-                    rawVib = 1.00; // Tripwire latched
-                    rawTilt = 5.20;
-                    rawDisp = 16.5;
+                    rawVib = 1.000;
+                    rawTilt = 5.200;
+                    rawDisp = 16.500;
                 } else if (activeSimMode === "warning") {
-                    rawVib = 0.45;
-                    rawTilt = 2.80;
-                    rawDisp = 9.2;
+                    rawVib = 0.450;
+                    rawTilt = 2.800;
+                    rawDisp = 9.200;
                 } else if (activeSimMode === "manual") {
                     rawTilt = parseFloat(document.getElementById("slider-tilt").value || 0);
                     rawVib = parseFloat(document.getElementById("slider-vib").value || 0);
                     rawDisp = parseFloat(document.getElementById("slider-strain").value || 0);
                 } else {
-                    // Safe tripwire quiescent baseline
-                    rawVib = 0.00;
-                    rawTilt = 0.00;
-                    rawDisp = 0.00;
+                    // Dynamic / Safe mode: STRICTLY 0.000! No garbage noise!
+                    rawVib = 0.000;
+                    rawTilt = 0.000;
+                    rawDisp = 0.000;
                 }
 
                 return {
@@ -1917,42 +1991,52 @@
                 };
             }
 
-            // NODE_01: Geotechnical Node (MPU6050 + HC-SR04 through 1D Kalman Filters)
+            // NODE_01
             if (activeSimMode === "manual") {
                 rawTilt = parseFloat(document.getElementById("slider-tilt").value || 0);
                 rawVib = parseFloat(document.getElementById("slider-vib").value || 0);
                 rawDisp = parseFloat(document.getElementById("slider-strain").value || 0);
             } else if (activeSimMode === "danger") {
-                // Critical strata collapse scenario (all 3 sensors breach)
-                rawTilt = 5.35 + (Math.random() * 0.4 - 0.2);
-                rawVib = 0.95 + (Math.random() * 0.2 - 0.1);
-                rawDisp = 16.8 + (Math.random() * 0.6 - 0.3);
+                rawTilt = 5.350;
+                rawVib = 0.950;
+                rawDisp = 16.800;
             } else if (activeSimMode === "warning") {
-                // Moderate geotechnical drift
-                rawTilt = 2.90 + (Math.random() * 0.2 - 0.1);
-                rawVib = 0.48 + (Math.random() * 0.1 - 0.05);
-                rawDisp = 9.4 + (Math.random() * 0.4 - 0.2);
+                rawTilt = 2.900;
+                rawVib = 0.480;
+                rawDisp = 9.400;
             } else {
-                // Normal baseline: MPU6050 stationary with slight physical noise
-                rawTilt = 0.05 + (Math.random() * 0.08 - 0.04);
-                rawVib = 0.02 + (Math.random() * 0.03);
-                rawDisp = 0.3 + (Math.random() * 0.2 - 0.1);
-                if (rawDisp < 0) rawDisp = 0.0;
+                // Dynamic & Safe mode: STRICTLY 0.000 until physical hardware connects! No garbage values!
+                rawTilt = 0.000;
+                rawVib = 0.000;
+                rawDisp = 0.000;
             }
 
-            // Apply Discrete Kalman Filters matching central_hub_esp32s3_v6.ino
-            const filtTilt = kfTiltNode1.update(rawTilt);
-            const filtVib = kfVibNode1.update(rawVib);
-            const filtDisp = kfDispNode1.update(rawDisp);
+            let filtTilt = 0.000;
+            let filtVib = 0.000;
+            let filtDisp = 0.000;
+
+            if (activeSimMode === "manual" || activeSimMode === "danger" || activeSimMode === "warning") {
+                filtTilt = parseFloat(kfTiltNode1.update(rawTilt).toFixed(3));
+                filtVib = parseFloat(kfVibNode1.update(rawVib).toFixed(3));
+                filtDisp = parseFloat(kfDispNode1.update(rawDisp).toFixed(3));
+            } else {
+                // Dynamic tab: Reset filter states and strictly return 0.000
+                kfTiltNode1.x = 0.0;
+                kfVibNode1.x = 0.0;
+                kfDispNode1.x = 0.0;
+                filtTilt = 0.000;
+                filtVib = 0.000;
+                filtDisp = 0.000;
+            }
 
             return {
                 node_id: "NODE_01",
                 raw_tilt: rawTilt,
                 raw_vib: rawVib,
                 raw_strain: rawDisp,
-                filtered_tilt: parseFloat(filtTilt.toFixed(2)),
-                filtered_vibration: parseFloat(filtVib.toFixed(2)),
-                filtered_strain: parseFloat(filtDisp.toFixed(1)),
+                filtered_tilt: filtTilt,
+                filtered_vibration: filtVib,
+                filtered_strain: filtDisp,
                 battery: baseBattery,
                 is_hardware: false
             };
@@ -2330,9 +2414,23 @@
             }
         }
 
-        function triggerManualTestAlert(targetEmail) {
-            const email = targetEmail || (currentUser ? `${currentUser.toLowerCase()}@igniters.com` : "operator@igniters.com");
-            dispatchEmergencyAlertEmail("DANGER", 4.85, 1.82, 2.45, email);
+        function triggerManualTestAlert(targetEmail, targetName) {
+            let dest = (targetEmail || "").trim();
+            if (!dest || !dest.includes("@")) {
+                const entered = prompt(`Enter recipient email address to send live evacuation alert to ${targetName || 'user'}:`);
+                if (!entered) return;
+                dest = entered.trim();
+                if (targetName) {
+                    const users = getUsers();
+                    if (users[targetName]) {
+                        users[targetName].email = dest;
+                        saveUsers(users);
+                        syncUserToSupabase(targetName, users[targetName].role, users[targetName].status, users[targetName].registeredAt, dest);
+                        renderAdminPanel();
+                    }
+                }
+            }
+            dispatchEmergencyAlertEmail("DANGER", 5.24, 2.15, 3.10, dest);
         }
 
         async function sendCustomTestAlertEmail() {
@@ -2441,22 +2539,26 @@
 
             // Hardware Metrics Display (Kalman Filtered & Raw Channels)
             const elTilt = document.getElementById("val-tilt");
-            if (elTilt) elTilt.textContent = tiltVal.toFixed(2);
             const elVib = document.getElementById("val-vib");
-            if (elVib) elVib.textContent = vibVal.toFixed(2);
             const elStrain = document.getElementById("val-strain");
-            if (elStrain) elStrain.textContent = strainVal.toFixed(1);
+
+            const isHwLive = liveHardwareData && liveHardwareData.connected;
+            const isSimZero = (!isHwLive && (activeSimMode === "dynamic" || activeSimMode === "safe"));
+
+            if (elTilt) elTilt.textContent = isSimZero ? "0.000" : tiltVal.toFixed(3);
+            if (elVib) elVib.textContent = isSimZero ? "0.000" : vibVal.toFixed(3);
+            if (elStrain) elStrain.textContent = isSimZero ? "0.000" : strainVal.toFixed(3);
 
             const rawT = (payload.raw_tilt !== undefined) ? payload.raw_tilt : tiltVal;
             const rawV = (payload.raw_vib !== undefined) ? payload.raw_vib : vibVal;
             const rawS = (payload.raw_strain !== undefined) ? payload.raw_strain : strainVal;
 
             const subT = document.getElementById("sub-tilt");
-            if (subT) subT.textContent = `Raw: ${rawT.toFixed(2)}° • Filtered`;
+            if (subT) subT.textContent = isHwLive ? `Raw: ${rawT.toFixed(3)}° • Real Hardware` : (isSimZero ? `Raw: 0.000° • Standby (0.000)` : `Raw: ${rawT.toFixed(2)}° • Filtered`);
             const subV = document.getElementById("sub-vib");
-            if (subV) subV.textContent = `Raw: ${rawV.toFixed(2)}g • Dynamic`;
+            if (subV) subV.textContent = isHwLive ? `Raw: ${rawV.toFixed(3)}g • Real Hardware` : (isSimZero ? `Raw: 0.000g • Standby (0.000)` : `Raw: ${rawV.toFixed(2)}g • Dynamic`);
             const subS = document.getElementById("sub-strain");
-            if (subS) subS.textContent = `Raw: ${rawS.toFixed(1)}mm • Subsidence`;
+            if (subS) subS.textContent = isHwLive ? `Raw: ${rawS.toFixed(3)}mm • Real Hardware` : (isSimZero ? `Raw: 0.000mm • Standby (0.000)` : `Raw: ${rawS.toFixed(1)}mm • Subsidence`);
             document.getElementById("last-updated").textContent = "Last Sync: " + timeStr;
 
             if (status === "SAFE") safeCount++;
