@@ -30,12 +30,51 @@ try:
 except ImportError:
     HAS_SERIAL = False
 
-# Regex matching ESP32-S3 output format:
-# "[NODE 1 KALMAN FILTERED] Tilt: +00.00 deg | Vib: 00.00 g | Disp: 000.0 mm"
-PATTERN_TELEMETRY = re.compile(
-    r"\[NODE\s+(\d+)\s+([^\]]+)\]\s+Tilt:\s*([+-]?\d+(?:\.\d+)?)\s*deg\s*\|\s*Vib:\s*([+-]?\d+(?:\.\d+)?)\s*g\s*\|\s*Disp:\s*([+-]?\d+(?:\.\d+)?)\s*mm",
-    re.IGNORECASE
-)
+def parse_telemetry_line(raw_line):
+    """
+    Universal parser for all 3 ESP32 firmware output formats:
+    1. Central Hub: [NODE 1 KALMAN FILTERED] Tilt: +00.00 deg | Vib: 00.00 g | Disp: 000.0 mm
+    2. Central Hub: [NODE 2 DIGITAL OVERRIDE] Tilt: +00.00 deg | Vib: 00.00 g | Disp: 000.0 mm
+    3. Node 1 Direct: [NODE 1 TX SLOT 1] Sent Instant (<1ms): Tilt=+00.00 deg | Vib=00.00 g | Disp=000.0 mm
+    4. Node 2 Direct: [NODE 2 TX SLOT 2] Digital Telemetry: Tilt=00.0 deg (NORMAL) | Vib=00.0 (NORMAL) | Disp=0.0mm
+    """
+    node_m = re.search(r"NODE\s*(\d+)", raw_line, re.I)
+    tilt_m = re.search(r"Tilt\s*[:=]\s*([+-]?\d+(?:\.\d+)?)", raw_line, re.I)
+    vib_m = re.search(r"Vib\s*[:=]\s*([+-]?\d+(?:\.\d+)?)", raw_line, re.I)
+    disp_m = re.search(r"Disp\s*[:=]\s*([+-]?\d+(?:\.\d+)?)", raw_line, re.I)
+
+    if tilt_m and (vib_m or disp_m):
+        node_id = int(node_m.group(1)) if node_m else 1
+        tilt = float(tilt_m.group(1))
+        vib = float(vib_m.group(1)) if vib_m else 0.0
+        disp = float(disp_m.group(1)) if disp_m else 0.0
+
+        is_danger = (tilt >= 5.0 or vib >= 0.8 or disp >= 15.0)
+        is_warning = (tilt >= 2.5 or vib >= 0.4 or disp >= 8.0)
+        status = "DANGER" if is_danger else ("WARNING" if is_warning else "SAFE")
+
+        filter_type = "HARDWARE SENSOR"
+        raw_upper = raw_line.upper()
+        if "KALMAN" in raw_upper:
+            filter_type = "KALMAN FILTERED"
+        elif "OVERRIDE" in raw_upper or "DIGITAL" in raw_upper:
+            filter_type = "DIGITAL OVERRIDE"
+        elif "SLOT 1" in raw_upper:
+            filter_type = "NODE 1 DIRECT (Slot 1)"
+        elif "SLOT 2" in raw_upper:
+            filter_type = "NODE 2 DIRECT (Slot 2)"
+
+        return {
+            "source": "ESP32_HARDWARE_BRIDGE",
+            "node_id": f"NODE_0{node_id}",
+            "filter_mode": filter_type,
+            "tilt": tilt,
+            "vibration": vib,
+            "displacement": disp,
+            "status": status,
+            "timestamp": time.strftime("%H:%M:%S")
+        }
+    return None
 
 # Regex matching Alert format from central_hub_esp32s3_5.ino:
 # "[LOCAL ALERT] Node 1 breached safety limit! Tilt: 5.2 deg, Disp: 16.2 mm"
@@ -74,7 +113,7 @@ def run_hardware_listener(port, baudrate=115200, target_url="http://127.0.0.1:80
         return
 
     print(f"\n=======================================================")
-    print(f"[BRIDGE] OPENING USB SERIAL CONNECTION TO ESP32-S3")
+    print(f"[BRIDGE] OPENING USB SERIAL CONNECTION TO HARDWARE")
     print(f"Port      : {port}")
     print(f"Baud Rate : {baudrate}")
     print(f"Backend   : {target_url}")
@@ -91,35 +130,14 @@ def run_hardware_listener(port, baudrate=115200, target_url="http://127.0.0.1:80
                     if not raw_line:
                         continue
 
-                    print(f"[ESP32-S3 RX] {raw_line}")
+                    print(f"[RX] {raw_line}")
 
-                    # 1. Check for standard telemetry line
-                    match_tel = PATTERN_TELEMETRY.search(raw_line)
-                    if match_tel:
-                        node_id = int(match_tel.group(1))
-                        filter_type = match_tel.group(2).strip()
-                        tilt = float(match_tel.group(3))
-                        vib = float(match_tel.group(4))
-                        disp = float(match_tel.group(5))
-
-                        is_danger = (tilt >= 5.0 or vib >= 0.8 or disp >= 15.0)
-                        is_warning = (tilt >= 2.5 or vib >= 0.4 or disp >= 8.0)
-                        status = "DANGER" if is_danger else ("WARNING" if is_warning else "SAFE")
-
-                        payload = {
-                            "source": "ESP32_S3_HARDWARE",
-                            "node_id": f"NODE_0{node_id}",
-                            "filter_mode": filter_type,
-                            "tilt": tilt,
-                            "vibration": vib,
-                            "displacement": disp,
-                            "status": status,
-                            "timestamp": time.strftime("%H:%M:%S")
-                        }
-
+                    # 1. Check for standard telemetry line (universal parser)
+                    payload = parse_telemetry_line(raw_line)
+                    if payload:
                         posted = post_telemetry_to_dashboard(payload, target_url)
                         indicator = "[WEB SYNC OK]" if posted else "[LOCAL ONLY]"
-                        print(f"       --> Parsed Node {node_id}: Tilt={tilt:+.2f}deg | Vib={vib:.2f}g | Disp={disp:.1f}mm | {status} {indicator}")
+                        print(f"       --> PUSHED {payload['node_id']}: Tilt={payload['tilt']:+.2f}deg | Vib={payload['vibration']:.2f}g | Disp={payload['displacement']:.1f}mm | {payload['status']} {indicator}")
 
                     # 2. Check for local alert line
                     match_alt = PATTERN_ALERT.search(raw_line)
@@ -128,9 +146,9 @@ def run_hardware_listener(port, baudrate=115200, target_url="http://127.0.0.1:80
                         tilt = float(match_alt.group(2))
                         vib = float(match_alt.group(3)) if match_alt.group(3) is not None else 0.0
                         disp = float(match_alt.group(4))
-                        print(f"\n[CRITICAL BREACH DETECTED FROM ESP32-S3] Node {node_id} triggered hardware threshold! (Tilt: {tilt} deg, Vib: {vib} g, Disp: {disp} mm)")
+                        print(f"\n[CRITICAL BREACH DETECTED FROM HARDWARE] Node {node_id} triggered threshold! (Tilt: {tilt} deg, Vib: {vib} g, Disp: {disp} mm)")
                 else:
-                    time.sleep(0.05)
+                    time.sleep(0.04)
 
         except KeyboardInterrupt:
             print("\n[INFO] Closing serial bridge gracefully...")
@@ -222,18 +240,19 @@ def run_prehardware_emulator(target_url="http://127.0.0.1:8000/api/hardware_tele
             break
 
 def auto_detect_esp32_port(ports, baudrate=115200):
-    """Probes detected COM ports to find which one is streaming ESP32-S3 Central Hub telemetry."""
+    """Probes detected COM ports to find which one is streaming ESP32 hardware telemetry."""
     if not ports:
         return None
     if len(ports) == 1:
         return ports[0]
     
-    # Priority for known active ESP32-S3 port
-    if "COM7" in ports:
-        print("[AUTO-DETECT] Prioritizing active ESP32-S3 Central Hub on COM7")
-        return "COM7"
+    # Priority for known active ports
+    for priority_port in ["COM7", "COM8"]:
+        if priority_port in ports:
+            print(f"[AUTO-DETECT] Prioritizing active hardware port on {priority_port}")
+            return priority_port
 
-    print(f"[PROBING] Multiple COM ports detected: {', '.join(ports)}. Probing for ESP32-S3 stream...")
+    print(f"[PROBING] Multiple COM ports detected: {', '.join(ports)}. Probing for ESP32 stream...")
     for p in ports:
         try:
             print(f"  --> Checking {p}...")
@@ -243,12 +262,12 @@ def auto_detect_esp32_port(ports, baudrate=115200):
             while time.time() - start < 1.5:
                 if ser.in_waiting:
                     line = ser.readline().decode("utf-8", errors="ignore")
-                    if "[NODE" in line or "[SYSTEM]" in line or "ESP32-S3" in line or "[READY]" in line:
+                    if parse_telemetry_line(line) or "[NODE" in line or "[SYSTEM]" in line or "ESP32" in line or "[READY]" in line:
                         found = True
                         break
             ser.close()
             if found:
-                print(f"[FOUND] Active ESP32-S3 Central Hub identified on {p}!")
+                print(f"[FOUND] Active ESP32 device identified on {p}!")
                 return p
         except Exception:
             pass

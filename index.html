@@ -2044,26 +2044,38 @@
             const line = rawLine.trim();
             if (!line) return;
 
-            // Pattern: [NODE 1 KALMAN FILTERED] Tilt: -0.02 deg | Vib: 0.09 g | Disp: 165.8 mm
-            // Or:     [NODE 2 DIGITAL OVERRIDE] Tilt: +0.00 deg | Vib: 0.00 g | Disp: 000.0 mm
-            const telMatch = line.match(/\[NODE\s+(\d+)\s+([^\]]+)\]\s+Tilt:\s*([+-]?\d+(?:\.\d+)?)\s*deg\s*\|\s*Vib:\s*([+-]?\d+(?:\.\d+)?)\s*g\s*\|\s*Disp:\s*([+-]?\d+(?:\.\d+)?)\s*mm/i);
-            if (telMatch) {
-                const nIdNum = parseInt(telMatch[1], 10);
-                const nodeIdStr = "NODE_0" + nIdNum;
-                const filterMode = telMatch[2].trim();
-                const tiltVal = parseFloat(telMatch[3]);
-                const vibVal = parseFloat(telMatch[4]);
-                const dispVal = parseFloat(telMatch[5]);
+            // Extract Node ID (default to selectedNodeId if not specified in packet)
+            const nodeMatch = line.match(/NODE\s*(\d+)/i);
+            let nodeIdStr = selectedNodeId || "NODE_01";
+            if (nodeMatch) {
+                nodeIdStr = "NODE_0" + parseInt(nodeMatch[1], 10);
+            }
+
+            // Universal regex matching Tilt, Vib, and Disp across all 3 firmware formats
+            const tiltMatch = line.match(/Tilt\s*[:=]\s*([+-]?\d+(?:\.\d+)?)/i);
+            const vibMatch  = line.match(/Vib\s*[:=]\s*([+-]?\d+(?:\.\d+)?)/i);
+            const dispMatch = line.match(/Disp\s*[:=]\s*([+-]?\d+(?:\.\d+)?)/i);
+
+            if (tiltMatch && (vibMatch || dispMatch)) {
+                const tiltVal = parseFloat(tiltMatch[1]);
+                const vibVal = vibMatch ? parseFloat(vibMatch[1]) : 0.0;
+                const dispVal = dispMatch ? parseFloat(dispMatch[1]) : 0.0;
+
+                let filterMode = "HARDWARE SENSOR";
+                if (/KALMAN/i.test(line)) filterMode = "KALMAN FILTERED";
+                else if (/OVERRIDE|DIGITAL/i.test(line)) filterMode = "DIGITAL OVERRIDE";
+                else if (/SLOT\s*1/i.test(line)) filterMode = "NODE 1 DIRECT (Slot 1)";
+                else if (/SLOT\s*2/i.test(line)) filterMode = "NODE 2 DIRECT (Slot 2)";
 
                 const isDanger = (dispVal >= CRITICAL_DISPLACEMENT_THRESH_MM || Math.abs(tiltVal) >= CRITICAL_TILT_THRESH_DEG || vibVal >= CRITICAL_VIBRATION_THRESH_G);
                 const isWarning = (dispVal >= 8.0 || Math.abs(tiltVal) >= 2.5 || vibVal >= 0.4);
                 const statusVal = isDanger ? "DANGER" : (isWarning ? "WARNING" : "SAFE");
 
                 if (!liveHardwareData) {
-                    liveHardwareData = { connected: true, source: "WEB_SERIAL_USB", nodes: {} };
+                    liveHardwareData = { connected: true, source: "USB_HARDWARE", nodes: {} };
                 }
                 liveHardwareData.connected = true;
-                liveHardwareData.source = "WEB_SERIAL_USB";
+                liveHardwareData.source = "USB_HARDWARE";
                 if (!liveHardwareData.nodes) liveHardwareData.nodes = {};
 
                 liveHardwareData.nodes[nodeIdStr] = {
@@ -2078,7 +2090,7 @@
                     connected: true
                 };
 
-                if (selectedNodeId === nodeIdStr) {
+                if (selectedNodeId === nodeIdStr || !liveHardwareData.node_id) {
                     liveHardwareData.node_id = nodeIdStr;
                     liveHardwareData.filter_mode = filterMode;
                     liveHardwareData.tilt = tiltVal;
@@ -2088,11 +2100,14 @@
                 }
 
                 lastLiveHardwareSync = Date.now();
-                setHardwareBadgeActive("LIVE HARDWARE CONNECTED (ESP32-S3 USB)");
+                setHardwareBadgeActive(`LIVE HARDWARE (${nodeIdStr}): Tilt: ${tiltVal >= 0 ? '+' : ''}${tiltVal.toFixed(2)}° | Vib: ${vibVal.toFixed(2)}g | Disp: ${dispVal.toFixed(1)}mm`);
+
+                // CRITICAL FIX: IMMEDIATELY PUSH PHYSICAL TELEMETRY INTO DASHBOARD UI
+                updateTelemetry();
             }
         }
 
-        // Check for live physical hardware stream from Python Serial Bridge
+        // Check for live physical hardware stream from Python Serial Bridge or Server Daemon
         async function checkLiveHardwareStream() {
             if (isWebSerialReading) return; // Web Serial handles active stream
 
@@ -2104,9 +2119,21 @@
                     if (data && data.connected) {
                         liveHardwareData = data;
                         lastLiveHardwareSync = Date.now();
-                        setHardwareBadgeActive("LIVE HARDWARE CONNECTED (ESP32-S3 USB)");
+
+                        const activeNodeData = (data.nodes && data.nodes[selectedNodeId])
+                            ? data.nodes[selectedNodeId]
+                            : ((data.node_id === selectedNodeId) ? data : (data.nodes ? Object.values(data.nodes)[0] : data));
+
+                        const t = activeNodeData ? (activeNodeData.tilt || 0) : 0;
+                        const v = activeNodeData ? (activeNodeData.vibration || 0) : 0;
+                        const d = activeNodeData ? (activeNodeData.displacement || 0) : 0;
+
+                        setHardwareBadgeActive(`LIVE HARDWARE (${selectedNodeId}): Tilt: ${t >= 0 ? '+' : ''}${t.toFixed(2)}° | Vib: ${v.toFixed(2)}g | Disp: ${d.toFixed(1)}mm`);
                         const hwFrame = document.getElementById("hw-frame-id");
                         if (hwFrame && data.frame_id) hwFrame.textContent = "#" + String(data.frame_id).padStart(4, "0");
+
+                        // PUSH TO DASHBOARD WITH SUB-SECOND RESPONSIVENESS
+                        updateTelemetry();
                         return;
                     }
                 }
@@ -2133,8 +2160,8 @@
             }
         }
 
-        // Periodic Hardware Gateway Polling
-        setInterval(checkLiveHardwareStream, 1500);
+        // Fast Hardware Gateway Polling (400ms interval for real-time hardware feel)
+        setInterval(checkLiveHardwareStream, 400);
 
         function getSimulatedPayload() {
             tdmaVirtualFrameId++;
@@ -2144,11 +2171,11 @@
             const node = (site && site.nodes) ? site.nodes.find(n => n.id === selectedNodeId) : null;
             const baseBattery = (node && node.battery !== undefined) ? node.battery : 100;
 
-            // 1. If physical ESP32-S3 hardware is broadcasting via serial bridge or Web Serial, use its real readings!
+            // 1. If physical ESP32 hardware is broadcasting via serial bridge, daemon, or Web Serial, use real readings!
             if (liveHardwareData && liveHardwareData.connected) {
                 const activeNodeData = (liveHardwareData.nodes && liveHardwareData.nodes[selectedNodeId])
                     ? liveHardwareData.nodes[selectedNodeId]
-                    : (liveHardwareData.node_id === selectedNodeId ? liveHardwareData : null);
+                    : (liveHardwareData.node_id === selectedNodeId ? liveHardwareData : (liveHardwareData.nodes ? Object.values(liveHardwareData.nodes)[0] : null));
 
                 if (activeNodeData) {
                     if (hwFrame) hwFrame.textContent = "#" + String(activeNodeData.frame_id || (tdmaVirtualFrameId % 9999)).padStart(4, "0");

@@ -1,3 +1,4 @@
+import json
 import os
 import smtplib
 from email.mime.text import MIMEText
@@ -576,6 +577,135 @@ def get_hardware_telemetry():
         for nid, ndata in list(res["nodes"].items()):
             ndata["connected"] = (now_ts - ndata.get("received_at", 0)) < 6.0
     return res
+
+
+def start_hardware_serial_worker():
+    """
+    Background worker thread that automatically monitors and reads connected
+    USB hardware COM ports (e.g., COM7, COM8, etc.), parses real telemetry,
+    and updates latest_hardware_telemetry continuously.
+    """
+    def worker():
+        try:
+            import serial
+            import serial.tools.list_ports
+        except ImportError:
+            print("[HARDWARE THREAD] pyserial not available; hardware auto-polling skipped.")
+            return
+
+        print("[HARDWARE THREAD] USB Hardware Auto-Detector thread started.")
+        while True:
+            try:
+                ports = [p.device for p in serial.tools.list_ports.comports()]
+                if not ports:
+                    time.sleep(2.0)
+                    continue
+
+                # Prioritize COM7 or COM8 or any connected USB port
+                target_port = None
+                for p in ["COM7", "COM8"]:
+                    if p in ports:
+                        target_port = p
+                        break
+                if not target_port and ports:
+                    target_port = ports[0]
+
+                ser = None
+                try:
+                    ser = serial.Serial(target_port, baudrate=115200, timeout=1.0)
+                    print(f"[HARDWARE THREAD] Successfully opened {target_port} @ 115200 baud!")
+                    while True:
+                        if ser.in_waiting > 0:
+                            raw_line = ser.readline().decode("utf-8", errors="ignore").strip()
+                            if not raw_line:
+                                continue
+
+                            # Universal regex parser for all 3 firmwares
+                            node_m = re.search(r"NODE\s*(\d+)", raw_line, re.I)
+                            tilt_m = re.search(r"Tilt\s*[:=]\s*([+-]?\d+(?:\.\d+)?)", raw_line, re.I)
+                            vib_m = re.search(r"Vib\s*[:=]\s*([+-]?\d+(?:\.\d+)?)", raw_line, re.I)
+                            disp_m = re.search(r"Disp\s*[:=]\s*([+-]?\d+(?:\.\d+)?)", raw_line, re.I)
+
+                            if tilt_m and (vib_m or disp_m):
+                                n_id = int(node_m.group(1)) if node_m else 1
+                                nid_str = f"NODE_0{n_id}"
+                                tilt = float(tilt_m.group(1))
+                                vib = float(vib_m.group(1)) if vib_m else 0.0
+                                disp = float(disp_m.group(1)) if disp_m else 0.0
+
+                                is_danger = (tilt >= 5.0 or vib >= 0.8 or disp >= 15.0)
+                                is_warning = (tilt >= 2.5 or vib >= 0.4 or disp >= 8.0)
+                                status = "DANGER" if is_danger else ("WARNING" if is_warning else "SAFE")
+
+                                now_ts = time.time()
+                                formatted_time = time.strftime("%H:%M:%S")
+
+                                filter_mode = "HARDWARE SENSOR"
+                                raw_upper = raw_line.upper()
+                                if "KALMAN" in raw_upper:
+                                    filter_mode = "KALMAN FILTERED"
+                                elif "OVERRIDE" in raw_upper or "DIGITAL" in raw_upper:
+                                    filter_mode = "DIGITAL OVERRIDE"
+                                elif "SLOT 1" in raw_upper:
+                                    filter_mode = "NODE 1 DIRECT (Slot 1)"
+                                elif "SLOT 2" in raw_upper:
+                                    filter_mode = "NODE 2 DIRECT (Slot 2)"
+
+                                node_data = {
+                                    "source": "ESP32_USB_DIRECT",
+                                    "node_id": nid_str,
+                                    "filter_mode": filter_mode,
+                                    "tilt": tilt,
+                                    "vibration": vib,
+                                    "displacement": disp,
+                                    "status": status,
+                                    "frame_id": 0,
+                                    "timestamp": formatted_time,
+                                    "received_at": now_ts,
+                                    "connected": True
+                                }
+
+                                if "nodes" not in latest_hardware_telemetry or not isinstance(latest_hardware_telemetry["nodes"], dict):
+                                    latest_hardware_telemetry["nodes"] = {}
+
+                                latest_hardware_telemetry["nodes"][nid_str] = node_data
+                                latest_hardware_telemetry["source"] = "ESP32_USB_DIRECT"
+                                latest_hardware_telemetry["connected"] = True
+                                latest_hardware_telemetry["node_id"] = nid_str
+                                latest_hardware_telemetry["filter_mode"] = filter_mode
+                                latest_hardware_telemetry["tilt"] = tilt
+                                latest_hardware_telemetry["vibration"] = vib
+                                latest_hardware_telemetry["displacement"] = disp
+                                latest_hardware_telemetry["status"] = status
+                                latest_hardware_telemetry["timestamp"] = formatted_time
+                                latest_hardware_telemetry["received_at"] = now_ts
+
+                                # Async cloud sync to Supabase
+                                log_to_supabase_async({
+                                    "node_id": nid_str,
+                                    "filtered_tilt": tilt,
+                                    "filtered_vibration": vib,
+                                    "filtered_strain": disp,
+                                    "status": status,
+                                    "timestamp": formatted_time
+                                })
+                        else:
+                            time.sleep(0.04)
+                except Exception:
+                    # Port may be busy (held by Web Serial in browser) or temporarily disconnected
+                    time.sleep(2.0)
+                finally:
+                    if ser and getattr(ser, "is_open", False):
+                        try: ser.close()
+                        except Exception: pass
+
+            except Exception:
+                time.sleep(2.0)
+
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+
+start_hardware_serial_worker()
 
 @app.get("/", response_class=HTMLResponse)
 def get_index():
@@ -2627,26 +2757,38 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             const line = rawLine.trim();
             if (!line) return;
 
-            // Pattern: [NODE 1 KALMAN FILTERED] Tilt: -0.02 deg | Vib: 0.09 g | Disp: 165.8 mm
-            // Or:     [NODE 2 DIGITAL OVERRIDE] Tilt: +0.00 deg | Vib: 0.00 g | Disp: 000.0 mm
-            const telMatch = line.match(/\[NODE\s+(\d+)\s+([^\]]+)\]\s+Tilt:\s*([+-]?\d+(?:\.\d+)?)\s*deg\s*\|\s*Vib:\s*([+-]?\d+(?:\.\d+)?)\s*g\s*\|\s*Disp:\s*([+-]?\d+(?:\.\d+)?)\s*mm/i);
-            if (telMatch) {
-                const nIdNum = parseInt(telMatch[1], 10);
-                const nodeIdStr = "NODE_0" + nIdNum;
-                const filterMode = telMatch[2].trim();
-                const tiltVal = parseFloat(telMatch[3]);
-                const vibVal = parseFloat(telMatch[4]);
-                const dispVal = parseFloat(telMatch[5]);
+            // Extract Node ID (default to selectedNodeId if not specified in packet)
+            const nodeMatch = line.match(/NODE\s*(\d+)/i);
+            let nodeIdStr = selectedNodeId || "NODE_01";
+            if (nodeMatch) {
+                nodeIdStr = "NODE_0" + parseInt(nodeMatch[1], 10);
+            }
+
+            // Universal regex matching Tilt, Vib, and Disp across all 3 firmware formats
+            const tiltMatch = line.match(/Tilt\s*[:=]\s*([+-]?\d+(?:\.\d+)?)/i);
+            const vibMatch  = line.match(/Vib\s*[:=]\s*([+-]?\d+(?:\.\d+)?)/i);
+            const dispMatch = line.match(/Disp\s*[:=]\s*([+-]?\d+(?:\.\d+)?)/i);
+
+            if (tiltMatch && (vibMatch || dispMatch)) {
+                const tiltVal = parseFloat(tiltMatch[1]);
+                const vibVal = vibMatch ? parseFloat(vibMatch[1]) : 0.0;
+                const dispVal = dispMatch ? parseFloat(dispMatch[1]) : 0.0;
+
+                let filterMode = "HARDWARE SENSOR";
+                if (/KALMAN/i.test(line)) filterMode = "KALMAN FILTERED";
+                else if (/OVERRIDE|DIGITAL/i.test(line)) filterMode = "DIGITAL OVERRIDE";
+                else if (/SLOT\s*1/i.test(line)) filterMode = "NODE 1 DIRECT (Slot 1)";
+                else if (/SLOT\s*2/i.test(line)) filterMode = "NODE 2 DIRECT (Slot 2)";
 
                 const isDanger = (dispVal >= CRITICAL_DISPLACEMENT_THRESH_MM || Math.abs(tiltVal) >= CRITICAL_TILT_THRESH_DEG || vibVal >= CRITICAL_VIBRATION_THRESH_G);
                 const isWarning = (dispVal >= 8.0 || Math.abs(tiltVal) >= 2.5 || vibVal >= 0.4);
                 const statusVal = isDanger ? "DANGER" : (isWarning ? "WARNING" : "SAFE");
 
                 if (!liveHardwareData) {
-                    liveHardwareData = { connected: true, source: "WEB_SERIAL_USB", nodes: {} };
+                    liveHardwareData = { connected: true, source: "USB_HARDWARE", nodes: {} };
                 }
                 liveHardwareData.connected = true;
-                liveHardwareData.source = "WEB_SERIAL_USB";
+                liveHardwareData.source = "USB_HARDWARE";
                 if (!liveHardwareData.nodes) liveHardwareData.nodes = {};
 
                 liveHardwareData.nodes[nodeIdStr] = {
@@ -2661,7 +2803,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                     connected: true
                 };
 
-                if (selectedNodeId === nodeIdStr) {
+                if (selectedNodeId === nodeIdStr || !liveHardwareData.node_id) {
                     liveHardwareData.node_id = nodeIdStr;
                     liveHardwareData.filter_mode = filterMode;
                     liveHardwareData.tilt = tiltVal;
@@ -2671,11 +2813,14 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                 }
 
                 lastLiveHardwareSync = Date.now();
-                setHardwareBadgeActive("LIVE HARDWARE CONNECTED (ESP32-S3 USB)");
+                setHardwareBadgeActive(`LIVE HARDWARE (${nodeIdStr}): Tilt: ${tiltVal >= 0 ? '+' : ''}${tiltVal.toFixed(2)}° | Vib: ${vibVal.toFixed(2)}g | Disp: ${dispVal.toFixed(1)}mm`);
+
+                // CRITICAL FIX: IMMEDIATELY PUSH PHYSICAL TELEMETRY INTO DASHBOARD UI
+                updateTelemetry();
             }
         }
 
-        // Check for live physical hardware stream from Python Serial Bridge
+        // Check for live physical hardware stream from Python Serial Bridge or Server Daemon
         async function checkLiveHardwareStream() {
             if (isWebSerialReading) return; // Web Serial handles active stream
 
@@ -2687,9 +2832,21 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                     if (data && data.connected) {
                         liveHardwareData = data;
                         lastLiveHardwareSync = Date.now();
-                        setHardwareBadgeActive("LIVE HARDWARE CONNECTED (ESP32-S3 USB)");
+
+                        const activeNodeData = (data.nodes && data.nodes[selectedNodeId])
+                            ? data.nodes[selectedNodeId]
+                            : ((data.node_id === selectedNodeId) ? data : (data.nodes ? Object.values(data.nodes)[0] : data));
+
+                        const t = activeNodeData ? (activeNodeData.tilt || 0) : 0;
+                        const v = activeNodeData ? (activeNodeData.vibration || 0) : 0;
+                        const d = activeNodeData ? (activeNodeData.displacement || 0) : 0;
+
+                        setHardwareBadgeActive(`LIVE HARDWARE (${selectedNodeId}): Tilt: ${t >= 0 ? '+' : ''}${t.toFixed(2)}° | Vib: ${v.toFixed(2)}g | Disp: ${d.toFixed(1)}mm`);
                         const hwFrame = document.getElementById("hw-frame-id");
                         if (hwFrame && data.frame_id) hwFrame.textContent = "#" + String(data.frame_id).padStart(4, "0");
+
+                        // PUSH TO DASHBOARD WITH SUB-SECOND RESPONSIVENESS
+                        updateTelemetry();
                         return;
                     }
                 }
@@ -2716,8 +2873,8 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             }
         }
 
-        // Periodic Hardware Gateway Polling
-        setInterval(checkLiveHardwareStream, 1500);
+        // Fast Hardware Gateway Polling (400ms interval for real-time hardware feel)
+        setInterval(checkLiveHardwareStream, 400);
 
         function getSimulatedPayload() {
             tdmaVirtualFrameId++;
@@ -2727,11 +2884,11 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             const node = (site && site.nodes) ? site.nodes.find(n => n.id === selectedNodeId) : null;
             const baseBattery = (node && node.battery !== undefined) ? node.battery : 100;
 
-            // 1. If physical ESP32-S3 hardware is broadcasting via serial bridge or Web Serial, use its real readings!
+            // 1. If physical ESP32 hardware is broadcasting via serial bridge, daemon, or Web Serial, use real readings!
             if (liveHardwareData && liveHardwareData.connected) {
                 const activeNodeData = (liveHardwareData.nodes && liveHardwareData.nodes[selectedNodeId])
                     ? liveHardwareData.nodes[selectedNodeId]
-                    : (liveHardwareData.node_id === selectedNodeId ? liveHardwareData : null);
+                    : (liveHardwareData.node_id === selectedNodeId ? liveHardwareData : (liveHardwareData.nodes ? Object.values(liveHardwareData.nodes)[0] : null));
 
                 if (activeNodeData) {
                     if (hwFrame) hwFrame.textContent = "#" + String(activeNodeData.frame_id || (tdmaVirtualFrameId % 9999)).padStart(4, "0");
