@@ -364,7 +364,8 @@ def find_users_json_path():
     return os.path.join(BASE_DIR, "users.json")
 
 FALLBACK_USERS = {
-    "Admin": { "password": "godisgreat", "email": "miningwithigniters@gmail.com", "role": "Administrator", "status": "Approved" }
+    "Admin": { "password": "godisgreat", "email": "miningwithigniters@gmail.com", "role": "Administrator", "status": "Approved" },
+    "Gladdy": { "password": "••••••••", "email": "sgoliver2610@gmail.com", "role": "Operator", "status": "Approved" }
 }
 
 class RegisterUserPayload(BaseModel):
@@ -1374,7 +1375,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                             <input type="email" id="test-recipient-email" placeholder="e.g. miningwithigniters@gmail.com, operator@example.com" style="width: 100%; padding: 0.6rem 0.85rem; border-radius: 6px; background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-primary); font-size: 0.88rem; outline: none;">
                             <div style="display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap;">
                                 <button type="button" onclick="document.getElementById('test-recipient-email').value='miningwithigniters@gmail.com'" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8; font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; cursor: pointer;">Quick: miningwithigniters@gmail.com</button>
-                                <button type="button" onclick="document.getElementById('test-recipient-email').value=getAllRegisteredPersonnelEmails().join(', ')" style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); color: #10b981; font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; cursor: pointer;">Quick: All Registered Users</button>
+                                <button type="button" onclick="fillAllRegisteredEmails()" style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); color: #10b981; font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; cursor: pointer;">Quick: All Registered Users</button>
                             </div>
                         </div>
                         <div style="flex: 1; min-width: 150px;">
@@ -1691,27 +1692,15 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             const saved = localStorage.getItem("mine_users");
             let users = saved ? JSON.parse(saved) : {};
 
-            // Purge legacy mock accounts so only Admin and newly registered users are preserved
-            const legacyAccounts = ["Gladdy", "aniveda", "ANIRUDH XIT", "adi", "Neha", "Swetha", "Veeran", "User", "Operator"];
-            let modified = false;
-            legacyAccounts.forEach(acc => {
-                if (users[acc]) {
-                    delete users[acc];
-                    modified = true;
-                }
-            });
-
             if (!users["Admin"]) {
                 users["Admin"] = DEFAULT_USERS["Admin"];
-                modified = true;
+                saveUsers(users);
             } else {
                 if (users["Admin"].email !== "miningwithigniters@gmail.com") {
                     users["Admin"].email = "miningwithigniters@gmail.com";
-                    modified = true;
+                    saveUsers(users);
                 }
             }
-
-            if (modified) saveUsers(users);
             return users;
         }
 
@@ -2928,25 +2917,56 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
         const ALERT_EMAIL_COOLDOWN_MS = 60 * 1000; // 60 seconds cooldown for identical node alert state
 
         // Helper to collect all registered users' emails for emergency broadcast
-        function getAllRegisteredPersonnelEmails() {
-            const users = getUsers();
+        async function getAllRegisteredPersonnelEmails() {
             const emails = new Set();
 
-            // Loop through all verified registered accounts in database
+            // 1. Fetch live directly from Supabase Cloud Database so every registered user is included in real-time
+            if (supabaseClient) {
+                try {
+                    const { data: suUsers } = await supabaseClient.from('users').select('*');
+                    if (suUsers && suUsers.length > 0) {
+                        suUsers.forEach(u => {
+                            let userEmail = u.email || "";
+                            let cleanReg = u.registered_at || "";
+                            if (cleanReg) {
+                                const m = cleanReg.match(/\[email:([^\]]+)\]/) || cleanReg.match(/\|\s*email:\s*([^\s\]]+)/);
+                                if (m) userEmail = m[1].trim();
+                            }
+                            if (userEmail && userEmail.includes("@")) {
+                                const clean = userEmail.trim().toLowerCase();
+                                // NEVER include master sender email (miningwithigniters@gmail.com) in recipient list
+                                if (clean !== "miningwithigniters@gmail.com") {
+                                    emails.add(clean);
+                                }
+                            }
+                        });
+                    }
+                } catch(e) {
+                    console.warn("Supabase emails query notice:", e);
+                }
+            }
+
+            // 2. Also check local storage (strictly excluding master email)
+            const users = (typeof getUsers === 'function') ? getUsers() : {};
             Object.keys(users).forEach(uname => {
                 const u = users[uname];
                 if (u && u.email && u.email.includes("@")) {
                     const clean = u.email.trim().toLowerCase();
-                    emails.add(clean);
+                    if (clean !== "miningwithigniters@gmail.com") {
+                        emails.add(clean);
+                    }
                 }
             });
 
-            // Always ensure master email is included if no others found
-            if (emails.size === 0) {
-                emails.add("miningwithigniters@gmail.com");
-            }
-
             return Array.from(emails);
+        }
+
+        async function fillAllRegisteredEmails() {
+            const list = await getAllRegisteredPersonnelEmails();
+            const el = document.getElementById('test-recipient-email');
+            if (el) {
+                el.value = list.join(', ');
+            }
         }
 
         function showEmergencyEmailToast(recipients, level, msg, nodeInfo) {
@@ -3003,9 +3023,15 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                 if (forcedRecipient) {
                     recipientList = forcedRecipient.split(",").map(s => s.trim()).filter(s => s && s.includes("@"));
                 } else {
-                    recipientList = getAllRegisteredPersonnelEmails();
+                    recipientList = await getAllRegisteredPersonnelEmails();
                 }
 
+                // Strictly filter out master email so alert is never sent from master email to master email
+                if (!forcedRecipient) {
+                    recipientList = recipientList.filter(e => e.toLowerCase() !== "miningwithigniters@gmail.com");
+                }
+
+                // If no other users are registered yet, fall back to master email so testing still functions
                 if (recipientList.length === 0) {
                     recipientList = ["miningwithigniters@gmail.com"];
                 }

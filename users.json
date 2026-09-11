@@ -4,5 +4,11 @@
         "email": "miningwithigniters@gmail.com",
         "role": "Administrator",
         "status": "Approved"
+    },
+    "Gladdy": {
+        "password": "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022",
+        "email": "sgoliver2610@gmail.com",
+        "role": "Operator",
+        "status": "Approved"
     }
 }
