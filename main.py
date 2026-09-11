@@ -350,17 +350,45 @@ Enterprise Mine Subsidence Monitoring System
         "error": delivery_error
     }
 
+def find_users_json_path():
+    candidates = [
+        os.path.join(BASE_DIR, "users.json"),
+        os.path.join(os.path.dirname(BASE_DIR), "users.json"),
+        os.path.join(BASE_DIR, "api", "users.json"),
+        os.path.join(os.getcwd(), "users.json"),
+        os.path.join(os.getcwd(), "api", "users.json")
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+    return os.path.join(BASE_DIR, "users.json")
+
+FALLBACK_USERS = {
+    "Admin": { "password": "godisgreat", "email": "miningwithigniters@gmail.com", "role": "Administrator", "status": "Approved" },
+    "Gladdy": { "password": "••••••••", "email": "gladdy@gmail.com", "role": "Operator", "status": "Approved" },
+    "aniveda": { "password": "••••••••", "email": "aniveda.s@gmail.com", "role": "Operator", "status": "Approved" },
+    "ANIRUDH XIT": { "password": "••••••••", "email": "anirudh.xit@igniters.com", "role": "Inspector", "status": "Approved" },
+    "adi": { "password": "••••••••", "email": "adi@igniters.com", "role": "Operator", "status": "Approved" },
+    "Neha": { "password": "••••••••", "email": "neha@igniters.com", "role": "Inspector", "status": "Approved" },
+    "Swetha": { "password": "••••••••", "email": "swetha@igniters.com", "role": "Operator", "status": "Approved" },
+    "Veeran": { "password": "••••••••", "email": "veeran@igniters.com", "role": "Inspector", "status": "Approved" },
+    "User": { "password": "user123", "email": "user@igniters.com", "role": "Operator", "status": "Approved" },
+    "Operator": { "password": "operator123", "email": "operator@igniters.com", "role": "Operator", "status": "Approved" }
+}
+
 @app.get("/api/users")
 @app.get("/users")
 def get_registered_users():
-    users_path = os.path.join(BASE_DIR, "users.json")
+    users_path = find_users_json_path()
     if os.path.exists(users_path):
         try:
             with open(users_path, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+                if data:
+                    return data
         except Exception:
             pass
-    return {}
+    return FALLBACK_USERS
 
 class UserEmailUpdatePayload(BaseModel):
     username: str
@@ -369,12 +397,14 @@ class UserEmailUpdatePayload(BaseModel):
 @app.post("/api/update_user_email")
 @app.post("/update_user_email")
 def update_user_email(payload: UserEmailUpdatePayload):
-    users_path = os.path.join(BASE_DIR, "users.json")
-    users = {}
+    users_path = find_users_json_path()
+    users = dict(FALLBACK_USERS)
     if os.path.exists(users_path):
         try:
             with open(users_path, "r", encoding="utf-8") as f:
-                users = json.load(f)
+                loaded = json.load(f)
+                if loaded:
+                    users.update(loaded)
         except Exception:
             pass
     uname = payload.username
