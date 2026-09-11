@@ -430,8 +430,11 @@
                         <span id="hw-live-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #94a3b8; display: inline-block; box-shadow: 0 0 6px #94a3b8;"></span>
                         <span id="hw-live-text">AWAITING PHYSICAL HARDWARE (0.000 IDLE)</span>
                     </div>
+                    <button type="button" id="btn-web-serial" onclick="toggleWebSerialConnection()" style="background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8; font-size: 0.78rem; font-weight: 700; padding: 4px 12px; border-radius: 16px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
+                        <span>🔌</span> <span id="btn-web-serial-text">Connect USB Hardware</span>
+                    </button>
                     <span style="font-size: 0.82rem; color: #94a3b8;">
-                        Hub: <strong style="color: #f1f5f9;">ESP32-S3 (central_hub_esp32s3_v6)</strong> &bull;
+                        Hub: <strong style="color: #f1f5f9;">ESP32-S3 (central_hub_esp32s3_5)</strong> &bull;
                         RF: <strong style="color: #c084fc;">Wi-Fi Ch 1 (ESP-NOW)</strong> &bull;
                         Slot 1: <strong style="color: #38bdf8;">Node 1 (MPU6050 + HC-SR04)</strong> &bull;
                         Slot 2: <strong style="color: #f59e0b;">Node 2 (SW-420 Tripwire)</strong>
@@ -1930,7 +1933,7 @@
         const kfVibNode1 = new DiscreteKalmanFilter1D(0.05, 2.0);
         const kfDispNode1 = new DiscreteKalmanFilter1D(0.01, 0.8);
 
-        // Hardware safety thresholds strictly matching central_hub_esp32s3_v6.ino
+        // Hardware safety thresholds strictly matching central_hub_esp32s3_5.ino
         const CRITICAL_DISPLACEMENT_THRESH_MM = 15.0; // Critical rock mass displacement (mm)
         const CRITICAL_TILT_THRESH_DEG = 5.0;         // Critical angular tilt (degrees)
         const CRITICAL_VIBRATION_THRESH_G = 0.8;      // Critical vibration trigger (g)
@@ -1939,8 +1942,160 @@
         let lastLiveHardwareSync = 0;
         let liveHardwareData = null;
 
+        // Web Serial API Direct Browser Connection (Google Chrome / Microsoft Edge)
+        let webSerialPort = null;
+        let webSerialReader = null;
+        let isWebSerialReading = false;
+
+        async function toggleWebSerialConnection() {
+            if (webSerialPort) {
+                await disconnectWebSerial();
+                return;
+            }
+            if (!('serial' in navigator)) {
+                alert("Web Serial API is natively supported in Google Chrome, Microsoft Edge, and Opera.\n\nTip: You can also run 'python serial_bridge.py' in the terminal to bridge USB hardware automatically!");
+                return;
+            }
+            try {
+                webSerialPort = await navigator.serial.requestPort();
+                await webSerialPort.open({ baudRate: 115200 });
+                isWebSerialReading = true;
+
+                const btnText = document.getElementById("btn-web-serial-text");
+                if (btnText) btnText.textContent = "Disconnect USB";
+                const btn = document.getElementById("btn-web-serial");
+                if (btn) {
+                    btn.style.background = "rgba(239, 68, 68, 0.15)";
+                    btn.style.borderColor = "rgba(239, 68, 68, 0.4)";
+                    btn.style.color = "#f87171";
+                }
+
+                setHardwareBadgeActive("LIVE HARDWARE CONNECTED (Web Serial USB)");
+                readWebSerialLoop();
+            } catch (err) {
+                console.warn("Serial connection canceled or failed:", err);
+            }
+        }
+
+        async function disconnectWebSerial() {
+            isWebSerialReading = false;
+            if (webSerialReader) {
+                try { await webSerialReader.cancel(); } catch(e){}
+            }
+            if (webSerialPort) {
+                try { await webSerialPort.close(); } catch(e){}
+                webSerialPort = null;
+            }
+            webSerialReader = null;
+            const btnText = document.getElementById("btn-web-serial-text");
+            if (btnText) btnText.textContent = "Connect USB Hardware";
+            const btn = document.getElementById("btn-web-serial");
+            if (btn) {
+                btn.style.background = "rgba(56, 189, 248, 0.12)";
+                btn.style.borderColor = "rgba(56, 189, 248, 0.4)";
+                btn.style.color = "#38bdf8";
+            }
+        }
+
+        async function readWebSerialLoop() {
+            let lineBuf = "";
+            try {
+                const textDecoder = new TextDecoderStream();
+                webSerialPort.readable.pipeTo(textDecoder.writable);
+                const reader = textDecoder.readable.getReader();
+                webSerialReader = reader;
+
+                while (isWebSerialReading) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    lineBuf += value;
+                    const lines = lineBuf.split(/\r?\n/);
+                    lineBuf = lines.pop(); // keep partial chunk
+
+                    for (const line of lines) {
+                        parseAndApplyHardwareLine(line);
+                    }
+                }
+            } catch (err) {
+                console.warn("Web Serial stream error:", err);
+            } finally {
+                disconnectWebSerial();
+            }
+        }
+
+        function setHardwareBadgeActive(label) {
+            const badge = document.getElementById("hw-live-badge");
+            const badgeText = document.getElementById("hw-live-text");
+            const badgeDot = document.getElementById("hw-live-dot");
+            if (badgeText) badgeText.textContent = label || "LIVE HARDWARE CONNECTED (ESP32-S3 USB)";
+            if (badge) {
+                badge.style.background = "rgba(16, 185, 129, 0.18)";
+                badge.style.borderColor = "rgba(16, 185, 129, 0.5)";
+                badge.style.color = "#10b981";
+            }
+            if (badgeDot) {
+                badgeDot.style.background = "#10b981";
+                badgeDot.style.boxShadow = "0 0 10px #10b981";
+            }
+        }
+
+        function parseAndApplyHardwareLine(rawLine) {
+            if (!rawLine || typeof rawLine !== "string") return;
+            const line = rawLine.trim();
+            if (!line) return;
+
+            // Pattern: [NODE 1 KALMAN FILTERED] Tilt: -0.02 deg | Vib: 0.09 g | Disp: 165.8 mm
+            // Or:     [NODE 2 DIGITAL OVERRIDE] Tilt: +0.00 deg | Vib: 0.00 g | Disp: 000.0 mm
+            const telMatch = line.match(/\[NODE\s+(\d+)\s+([^\]]+)\]\s+Tilt:\s*([+-]?\d+(?:\.\d+)?)\s*deg\s*\|\s*Vib:\s*([+-]?\d+(?:\.\d+)?)\s*g\s*\|\s*Disp:\s*([+-]?\d+(?:\.\d+)?)\s*mm/i);
+            if (telMatch) {
+                const nIdNum = parseInt(telMatch[1], 10);
+                const nodeIdStr = "NODE_0" + nIdNum;
+                const filterMode = telMatch[2].trim();
+                const tiltVal = parseFloat(telMatch[3]);
+                const vibVal = parseFloat(telMatch[4]);
+                const dispVal = parseFloat(telMatch[5]);
+
+                const isDanger = (dispVal >= CRITICAL_DISPLACEMENT_THRESH_MM || Math.abs(tiltVal) >= CRITICAL_TILT_THRESH_DEG || vibVal >= CRITICAL_VIBRATION_THRESH_G);
+                const isWarning = (dispVal >= 8.0 || Math.abs(tiltVal) >= 2.5 || vibVal >= 0.4);
+                const statusVal = isDanger ? "DANGER" : (isWarning ? "WARNING" : "SAFE");
+
+                if (!liveHardwareData) {
+                    liveHardwareData = { connected: true, source: "WEB_SERIAL_USB", nodes: {} };
+                }
+                liveHardwareData.connected = true;
+                liveHardwareData.source = "WEB_SERIAL_USB";
+                if (!liveHardwareData.nodes) liveHardwareData.nodes = {};
+
+                liveHardwareData.nodes[nodeIdStr] = {
+                    node_id: nodeIdStr,
+                    filter_mode: filterMode,
+                    tilt: tiltVal,
+                    vibration: vibVal,
+                    displacement: dispVal,
+                    status: statusVal,
+                    timestamp: new Date().toLocaleTimeString(),
+                    received_at: Date.now(),
+                    connected: true
+                };
+
+                if (selectedNodeId === nodeIdStr) {
+                    liveHardwareData.node_id = nodeIdStr;
+                    liveHardwareData.filter_mode = filterMode;
+                    liveHardwareData.tilt = tiltVal;
+                    liveHardwareData.vibration = vibVal;
+                    liveHardwareData.displacement = dispVal;
+                    liveHardwareData.status = statusVal;
+                }
+
+                lastLiveHardwareSync = Date.now();
+                setHardwareBadgeActive("LIVE HARDWARE CONNECTED (ESP32-S3 USB)");
+            }
+        }
+
         // Check for live physical hardware stream from Python Serial Bridge
         async function checkLiveHardwareStream() {
+            if (isWebSerialReading) return; // Web Serial handles active stream
+
             try {
                 const targetEndpoint = (window.API_BASE_URL || "").replace(/\/+$/, "") + "/api/hardware_telemetry";
                 const res = await fetch(targetEndpoint, { method: "GET" });
@@ -1949,19 +2104,7 @@
                     if (data && data.connected) {
                         liveHardwareData = data;
                         lastLiveHardwareSync = Date.now();
-                        const badge = document.getElementById("hw-live-badge");
-                        const badgeText = document.getElementById("hw-live-text");
-                        const badgeDot = document.getElementById("hw-live-dot");
-                        if (badgeText) badgeText.textContent = "LIVE HARDWARE CONNECTED (ESP32-S3 USB)";
-                        if (badge) {
-                            badge.style.background = "rgba(16, 185, 129, 0.18)";
-                            badge.style.borderColor = "rgba(16, 185, 129, 0.5)";
-                            badge.style.color = "#10b981";
-                        }
-                        if (badgeDot) {
-                            badgeDot.style.background = "#10b981";
-                            badgeDot.style.boxShadow = "0 0 10px #10b981";
-                        }
+                        setHardwareBadgeActive("LIVE HARDWARE CONNECTED (ESP32-S3 USB)");
                         const hwFrame = document.getElementById("hw-frame-id");
                         if (hwFrame && data.frame_id) hwFrame.textContent = "#" + String(data.frame_id).padStart(4, "0");
                         return;
@@ -1970,7 +2113,7 @@
             } catch(e) {}
 
             // Physical Hardware Stream Inactive / Standby
-            if (Date.now() - lastLiveHardwareSync > 4000) {
+            if (!isWebSerialReading && Date.now() - lastLiveHardwareSync > 4000) {
                 liveHardwareData = null;
                 const badge = document.getElementById("hw-live-badge");
                 const badgeText = document.getElementById("hw-live-text");
@@ -2001,23 +2144,29 @@
             const node = (site && site.nodes) ? site.nodes.find(n => n.id === selectedNodeId) : null;
             const baseBattery = (node && node.battery !== undefined) ? node.battery : 100;
 
-            // 1. If physical ESP32-S3 hardware is broadcasting via serial bridge, use its real readings!
+            // 1. If physical ESP32-S3 hardware is broadcasting via serial bridge or Web Serial, use its real readings!
             if (liveHardwareData && liveHardwareData.connected) {
-                if (hwFrame) hwFrame.textContent = "#" + String(liveHardwareData.frame_id || (tdmaVirtualFrameId % 9999)).padStart(4, "0");
-                const realTilt = parseFloat((liveHardwareData.tilt || 0).toFixed(3));
-                const realVib = parseFloat((liveHardwareData.vibration || 0).toFixed(3));
-                const realDisp = parseFloat((liveHardwareData.displacement || 0).toFixed(3));
-                return {
-                    node_id: liveHardwareData.node_id || selectedNodeId,
-                    raw_tilt: realTilt,
-                    raw_vib: realVib,
-                    raw_strain: realDisp,
-                    filtered_tilt: realTilt,
-                    filtered_vibration: realVib,
-                    filtered_strain: realDisp,
-                    battery: baseBattery,
-                    is_hardware: true
-                };
+                const activeNodeData = (liveHardwareData.nodes && liveHardwareData.nodes[selectedNodeId])
+                    ? liveHardwareData.nodes[selectedNodeId]
+                    : (liveHardwareData.node_id === selectedNodeId ? liveHardwareData : null);
+
+                if (activeNodeData) {
+                    if (hwFrame) hwFrame.textContent = "#" + String(activeNodeData.frame_id || (tdmaVirtualFrameId % 9999)).padStart(4, "0");
+                    const realTilt = parseFloat((activeNodeData.tilt || 0).toFixed(3));
+                    const realVib = parseFloat((activeNodeData.vibration || 0).toFixed(3));
+                    const realDisp = parseFloat((activeNodeData.displacement || 0).toFixed(3));
+                    return {
+                        node_id: selectedNodeId,
+                        raw_tilt: realTilt,
+                        raw_vib: realVib,
+                        raw_strain: realDisp,
+                        filtered_tilt: realTilt,
+                        filtered_vibration: realVib,
+                        filtered_strain: realDisp,
+                        battery: baseBattery,
+                        is_hardware: true
+                    };
+                }
             }
 
             if (hwFrame) hwFrame.textContent = "#0000 (0.000 Idle)";

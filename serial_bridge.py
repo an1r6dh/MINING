@@ -80,62 +80,69 @@ def run_hardware_listener(port, baudrate=115200, target_url="http://127.0.0.1:80
     print(f"Backend   : {target_url}")
     print(f"=======================================================")
 
-    try:
-        ser = serial.Serial(port, baudrate=baudrate, timeout=1.0)
-        print(f"[SUCCESS] Connected to {port}! Listening for live ESP-NOW TDMA frames...\n")
-    except Exception as e:
-        print(f"[ERROR] Could not open serial port {port}: {e}")
-        return
+    while True:
+        ser = None
+        try:
+            ser = serial.Serial(port, baudrate=baudrate, timeout=1.0)
+            print(f"[SUCCESS] Connected to {port}! Listening for live ESP-NOW TDMA frames...\n")
+            while True:
+                if ser.in_waiting > 0:
+                    raw_line = ser.readline().decode("utf-8", errors="ignore").strip()
+                    if not raw_line:
+                        continue
 
-    try:
-        while True:
-            if ser.in_waiting > 0:
-                raw_line = ser.readline().decode("utf-8", errors="ignore").strip()
-                if not raw_line:
-                    continue
+                    print(f"[ESP32-S3 RX] {raw_line}")
 
-                print(f"[ESP32-S3 RX] {raw_line}")
+                    # 1. Check for standard telemetry line
+                    match_tel = PATTERN_TELEMETRY.search(raw_line)
+                    if match_tel:
+                        node_id = int(match_tel.group(1))
+                        filter_type = match_tel.group(2).strip()
+                        tilt = float(match_tel.group(3))
+                        vib = float(match_tel.group(4))
+                        disp = float(match_tel.group(5))
 
-                # 1. Check for standard telemetry line
-                match_tel = PATTERN_TELEMETRY.search(raw_line)
-                if match_tel:
-                    node_id = int(match_tel.group(1))
-                    filter_type = match_tel.group(2).strip()
-                    tilt = float(match_tel.group(3))
-                    vib = float(match_tel.group(4))
-                    disp = float(match_tel.group(5))
+                        is_danger = (tilt >= 5.0 or vib >= 0.8 or disp >= 15.0)
+                        is_warning = (tilt >= 2.5 or vib >= 0.4 or disp >= 8.0)
+                        status = "DANGER" if is_danger else ("WARNING" if is_warning else "SAFE")
 
-                    is_danger = (tilt >= 5.0 or vib >= 0.8 or disp >= 15.0)
-                    is_warning = (tilt >= 2.5 or vib >= 0.4 or disp >= 8.0)
-                    status = "DANGER" if is_danger else ("WARNING" if is_warning else "SAFE")
+                        payload = {
+                            "source": "ESP32_S3_HARDWARE",
+                            "node_id": f"NODE_0{node_id}",
+                            "filter_mode": filter_type,
+                            "tilt": tilt,
+                            "vibration": vib,
+                            "displacement": disp,
+                            "status": status,
+                            "timestamp": time.strftime("%H:%M:%S")
+                        }
 
-                    payload = {
-                        "source": "ESP32_S3_HARDWARE",
-                        "node_id": f"NODE_0{node_id}",
-                        "filter_mode": filter_type,
-                        "tilt": tilt,
-                        "vibration": vib,
-                        "displacement": disp,
-                        "status": status,
-                        "timestamp": time.strftime("%H:%M:%S")
-                    }
+                        posted = post_telemetry_to_dashboard(payload, target_url)
+                        indicator = "[WEB SYNC OK]" if posted else "[LOCAL ONLY]"
+                        print(f"       --> Parsed Node {node_id}: Tilt={tilt:+.2f}deg | Vib={vib:.2f}g | Disp={disp:.1f}mm | {status} {indicator}")
 
-                    posted = post_telemetry_to_dashboard(payload, target_url)
-                    indicator = "[WEB SYNC OK]" if posted else "[LOCAL ONLY]"
-                    print(f"       --> Parsed Node {node_id}: Tilt={tilt:+.2f}deg | Vib={vib:.2f}g | Disp={disp:.1f}mm | {status} {indicator}")
+                    # 2. Check for local alert line
+                    match_alt = PATTERN_ALERT.search(raw_line)
+                    if match_alt:
+                        node_id = int(match_alt.group(1))
+                        tilt = float(match_alt.group(2))
+                        vib = float(match_alt.group(3)) if match_alt.group(3) is not None else 0.0
+                        disp = float(match_alt.group(4))
+                        print(f"\n[CRITICAL BREACH DETECTED FROM ESP32-S3] Node {node_id} triggered hardware threshold! (Tilt: {tilt} deg, Vib: {vib} g, Disp: {disp} mm)")
+                else:
+                    time.sleep(0.05)
 
-                # 2. Check for local alert line
-                match_alt = PATTERN_ALERT.search(raw_line)
-                if match_alt:
-                    node_id = int(match_alt.group(1))
-                    tilt = float(match_alt.group(2))
-                    vib = float(match_alt.group(3)) if match_alt.group(3) is not None else 0.0
-                    disp = float(match_alt.group(4))
-                    print(f"\n[CRITICAL BREACH DETECTED FROM ESP32-S3] Node {node_id} triggered hardware threshold! (Tilt: {tilt} deg, Vib: {vib} g, Disp: {disp} mm)")
-
-    except KeyboardInterrupt:
-        print("\n[INFO] Closing serial bridge gracefully...")
-        ser.close()
+        except KeyboardInterrupt:
+            print("\n[INFO] Closing serial bridge gracefully...")
+            if ser and ser.is_open:
+                ser.close()
+            break
+        except Exception as e:
+            print(f"[RECONNECT] Serial connection error ({e}). Retrying in 2 seconds...")
+            if ser:
+                try: ser.close()
+                except Exception: pass
+            time.sleep(2.0)
 
 def run_prehardware_emulator(target_url="http://127.0.0.1:8000/api/hardware_telemetry"):
     """
@@ -214,9 +221,42 @@ def run_prehardware_emulator(target_url="http://127.0.0.1:8000/api/hardware_tele
             print("\n[INFO] Virtual emulator stopped.")
             break
 
+def auto_detect_esp32_port(ports, baudrate=115200):
+    """Probes detected COM ports to find which one is streaming ESP32-S3 Central Hub telemetry."""
+    if not ports:
+        return None
+    if len(ports) == 1:
+        return ports[0]
+    
+    # Priority for known active ESP32-S3 port
+    if "COM7" in ports:
+        print("[AUTO-DETECT] Prioritizing active ESP32-S3 Central Hub on COM7")
+        return "COM7"
+
+    print(f"[PROBING] Multiple COM ports detected: {', '.join(ports)}. Probing for ESP32-S3 stream...")
+    for p in ports:
+        try:
+            print(f"  --> Checking {p}...")
+            ser = serial.Serial(p, baudrate=baudrate, timeout=1.2)
+            start = time.time()
+            found = False
+            while time.time() - start < 1.5:
+                if ser.in_waiting:
+                    line = ser.readline().decode("utf-8", errors="ignore")
+                    if "[NODE" in line or "[SYSTEM]" in line or "ESP32-S3" in line or "[READY]" in line:
+                        found = True
+                        break
+            ser.close()
+            if found:
+                print(f"[FOUND] Active ESP32-S3 Central Hub identified on {p}!")
+                return p
+        except Exception:
+            pass
+    return ports[0]
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Mine Subsidence ESP32-S3 Hardware Bridge")
-    parser.add_argument("--port", type=str, default=None, help="COM port for ESP32-S3 (e.g. COM3, COM4, /dev/ttyUSB0)")
+    parser.add_argument("--port", type=str, default=None, help="COM port for ESP32-S3 (e.g. COM7, COM3, /dev/ttyUSB0)")
     parser.add_argument("--baud", type=int, default=115200, help="Baud rate (default: 115200)")
     parser.add_argument("--url", type=str, default="http://127.0.0.1:8000/api/hardware_telemetry", help="Target API URL")
     parser.add_argument("--mock", action="store_true", help="Run in Pre-Hardware Virtual TDMA Mode")
@@ -228,14 +268,11 @@ if __name__ == "__main__":
         ports = list_available_ports()
         if args.port:
             run_hardware_listener(args.port, args.baud, args.url)
-        elif len(ports) == 1:
-            print(f"[AUTO-DETECT] Found device on port: {ports[0]}")
-            run_hardware_listener(ports[0], args.baud, args.url)
-        elif len(ports) > 1:
-            print(f"Multiple COM ports detected: {', '.join(ports)}")
-            selected = input(f"Enter target COM port [{ports[0]}]: ").strip()
-            run_hardware_listener(selected if selected else ports[0], args.baud, args.url)
+        elif ports:
+            target_port = auto_detect_esp32_port(ports, args.baud)
+            print(f"[BRIDGE] Selected active port: {target_port}")
+            run_hardware_listener(target_port, args.baud, args.url)
         else:
             print("[NOTICE] No physical USB COM ports currently detected.")
-            print("         Starting Pre-Hardware Virtual TDMA Mode (matching central_hub_esp32s3_v6.ino math)...")
+            print("         Starting Pre-Hardware Virtual TDMA Mode (matching central_hub_esp32s3_5.ino math)...")
             run_prehardware_emulator(args.url)
