@@ -2,7 +2,7 @@
 ====================================================================================================
 PROJECT: INTRINSICALLY SAFE REAL-TIME MINE SUBSIDENCE MONITORING (SIH 26025)
 MODULE : USB Serial Hardware Bridge to Web Dashboard & Email Alert System
-TARGET : Listens to ESP32-S3 Central Master Hub (central_hub_esp32s3_v6.ino) @ 115200 Baud
+TARGET : Listens to ESP32-S3 Central Master Hub (central_hub_esp32s3_5.ino) @ 115200 Baud
 ====================================================================================================
 """
 
@@ -37,10 +37,11 @@ PATTERN_TELEMETRY = re.compile(
     re.IGNORECASE
 )
 
-# Regex matching Alert format:
-# "[LOCAL ALERT] Node 1 breached safety limit! Tilt: 5.2 deg, Vib: 1.10 g, Disp: 16.2 mm"
+# Regex matching Alert format from central_hub_esp32s3_5.ino:
+# "[LOCAL ALERT] Node 1 breached safety limit! Tilt: 5.2 deg, Disp: 16.2 mm"
+# Also supports optional Vib parameter if present
 PATTERN_ALERT = re.compile(
-    r"\[LOCAL ALERT\]\s+Node\s+(\d+)\s+breached safety limit!\s+Tilt:\s*([+-]?\d+(?:\.\d+)?)\s*deg,\s*Vib:\s*([+-]?\d+(?:\.\d+)?)\s*g,\s*Disp:\s*([+-]?\d+(?:\.\d+)?)\s*mm",
+    r"\[LOCAL ALERT\]\s+Node\s+(\d+)\s+breached safety limit!\s+Tilt:\s*([+-]?\d+(?:\.\d+)?)\s*deg(?:,\s*Vib:\s*([+-]?\d+(?:\.\d+)?)\s*g)?,\s*Disp:\s*([+-]?\d+(?:\.\d+)?)\s*mm",
     re.IGNORECASE
 )
 
@@ -128,9 +129,9 @@ def run_hardware_listener(port, baudrate=115200, target_url="http://127.0.0.1:80
                 if match_alt:
                     node_id = int(match_alt.group(1))
                     tilt = float(match_alt.group(2))
-                    vib = float(match_alt.group(3))
+                    vib = float(match_alt.group(3)) if match_alt.group(3) is not None else 0.0
                     disp = float(match_alt.group(4))
-                    print(f"\n[CRITICAL BREACH DETECTED FROM ESP32-S3] Node {node_id} triggered hardware threshold!")
+                    print(f"\n[CRITICAL BREACH DETECTED FROM ESP32-S3] Node {node_id} triggered hardware threshold! (Tilt: {tilt} deg, Vib: {vib} g, Disp: {disp} mm)")
 
     except KeyboardInterrupt:
         print("\n[INFO] Closing serial bridge gracefully...")
@@ -138,7 +139,7 @@ def run_hardware_listener(port, baudrate=115200, target_url="http://127.0.0.1:80
 
 def run_prehardware_emulator(target_url="http://127.0.0.1:8000/api/hardware_telemetry"):
     """
-    Simulates the exact output stream of central_hub_esp32s3_v6.ino
+    Simulates the exact output stream of central_hub_esp32s3_5.ino
     so you can test the entire hardware-to-dashboard-to-email pipeline
     before the physical hardware arrives.
     """

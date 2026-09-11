@@ -1,44 +1,27 @@
 /**
  * ====================================================================================================
  * PROJECT: INTRINSICALLY SAFE REAL-TIME MINE SUBSIDENCE MONITORING & EARLY WARNING (SIH 26025)
- * FIRMWARE: ESP32-S3 Central Master Hub (central_hub_esp32s3_v6.ino)
+ * FIRMWARE: ESP32-S3 Central Master Hub (central_hub_esp32s3_5.ino)
  * TARGET: ESP32-S3 Development Board (Arduino IDE Compilable)
  * ====================================================================================================
  * 
- * AUDIT & ENGINEERING REVISIONS (VERSION 6.0 PRODUCTION HARDENED):
- * 1. Unified Buzzer Management & Dual-Core Race Condition Elimination (CRITICAL):
- *    - Core 0 (vGsmSmsTask) previously called digitalWrite(PIN_BUZZER, HIGH/LOW) with blocking vTaskDelay,
- *      which conflicted with Core 1's continuous handleBuzzerAlerts() in loop(), causing pin contention
- *      and instantaneous silencing of warning beeps.
- *    - All physical buzzer writes are now strictly unified on Core 1. Core 0 requests warning beeps via
- *      a non-blocking thread-safe counter (gsmWarningBeepsRemaining).
- * 2. Hardened Cellular Network Registration (AT+CREG?) Response Parser (CRITICAL):
- *    - Replaced the fragile single-shot 300ms delay with an active response collector loop (up to 1500ms)
- *      that verifies complete modem frames ("OK", "+CREG:"). Handles home (1) and roaming (5) across all
- *      solicited/unsolicited formats (e.g. "+CREG: 0,1", "+CREG: 1,1", "+CREG: 0,5", "+CREG: 1").
- *    - Added automatic retry before declaring network out-of-coverage, preventing dropped emergency SMS.
- * 3. SMS Prompt Timeout Escape Recovery (0x1B ESC):
- *    - If the modem prompt ('>') is not received within 5000ms, the routine sends 0x1B (ESC) to cleanly
- *      abort the SMS input session, preventing subsequent AT commands from being swallowed as SMS body text.
- * 4. Non-Blocking USB-CDC Serial Command Engine (TDMA Protection):
- *    - Replaced Serial.readStringUntil('\n') (which blocked up to 1000ms) with a zero-latency static byte
- *      accumulator. Eliminates TDMA superframe jitter and ensures sub-millisecond beacon clock precision.
- * 5. Geotechnical Vibration Threshold Detection (Node 1 & Node 2):
- *    - Defined CRITICAL_VIBRATION_THRESH_G (0.8f). Now checks filtered_vibration alongside tilt and displacement.
- *    - Node 2's SW-420 tripwire vibration latch (1.0f) and Node 1 dynamic seismic shocks now reliably trip alarms.
- * 6. Tripwire Alarm Latching:
- *    - Critical alarms are latched upon breach. Momentary tripwire triggers (e.g., SW-420 single-frame pulses)
- *      will not be silenced on the subsequent packet until an operator or upstream AI issues a "RESET" command.
- * 7. AI Hardware Server Interrupt (GPIO 10) Debouncing:
- *    - Added millisecond time-guard debouncing in handleServerInterruptISR() to prevent contact bounce or RF noise
- *      from flooding the FreeRTOS gsmQueue with duplicate emergency dispatches.
- * 8. 1D Discrete Kalman Initial State Auto-Seeding:
- *    - The ultrasonic displacement Kalman filter auto-seeds its initial state with the first valid reading,
- *      eliminating filter startup lag and false displacement breach transients.
- * 9. Dual-Core Memory Consistency:
- *    - All variables shared across Core 0 and Core 1 / ISR are qualified as volatile with atomic operations.
- * 10. Multi-IDF ESP-NOW Compatibility:
- *    - Supports ESP-IDF v4.x (Arduino Core 2.x) and ESP-IDF v5.x (Arduino Core 3.x) with strict callback casting.
+ * AUDIT CORRECTIONS IMPLEMENTED:
+ * 1. Queue Initialization Race Fix (CRITICAL):
+ *    - In setup(), gsmQueue = xQueueCreate(...) is now called BEFORE initHardware().
+ *    - Prevents missed SMS alert requests if GPIO 10 transitions LOW during boot interrupt attach.
+ * 2. 16x2 LCD Character Truncation Fix:
+ *    - In updateLCDDisplay(), formatted line0 with %+04.1f:
+ *      snprintf(line0, sizeof(line0), "N%d T:%+04.1f V:%.2f", ...)
+ *    - Strictly formats to 16 characters ("N1 T:+0.0 V:0.00"), preventing 2nd decimal truncation.
+ * 3. Explicit RF Wi-Fi Channel Lock:
+ *    - Included <esp_wifi.h>.
+ *    - esp_wifi_set_channel(ESPNOW_WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE); locks RF hardware to Ch 1.
+ * 4. FreeRTOS Dual-Core Architecture Retained:
+ *    - Core 1: Non-blocking TDMA master beacon (1000ms), ESP-NOW telemetry processing, LCD & LEDs.
+ *    - Core 0: vGsmSmsTask pinned via xTaskCreatePinnedToCore() for asynchronous SIM300L SMS alerts.
+ * 5. Geotechnical Kalman State Isolation & Digital Override Retained:
+ *    - Node 1: Processed through dedicated 1D Kalman filters (kfTilt, kfVibration, kfDisplacement).
+ *    - Node 2: Direct digital override (bypasses Kalman filters for instantaneous alarm tripping).
  * ====================================================================================================
  */
 
@@ -46,50 +29,43 @@
 #include <esp_now.h>
 #include <WiFi.h>
 #include <esp_wifi.h> // Explicit Wi-Fi Hardware Channel Configuration
-
-// Set to 1 to enable optional I2C 16x2 LCD display (Requires LiquidCrystal_I2C library)
-#define ENABLE_I2C_LCD          0
-
-#if ENABLE_I2C_LCD
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
-#define PIN_I2C_SDA             8    // ESP32-S3 hardware I2C SDA
-#define PIN_I2C_SCL             9    // ESP32-S3 hardware I2C SCL
-#define LCD_I2C_ADDR            0x27 // Default PCF8574 backpack address
-#define LCD_COLS                16
-#define LCD_ROWS                2
-#define LCD_REFRESH_INTERVAL_MS 250
-#define LCD_ROTATE_INTERVAL_MS  2000
-#endif
 
 /* ====================================================================================================
  * 1. HARDWARE PIN DEFINITIONS (ESP32-S3 SPECIFIC)
  * ==================================================================================================== */
-#define PIN_LED_RED_POWER       11   // Power LED (Continuously driven HIGH in setup)
-#define PIN_LED_GREEN_STATUS    13   // Status LED (Solid = Nodes 1 & 2 synced; Rapid blink = timeout)
+#define PIN_LED_RED_POWER       1    // Power LED (Continuously driven HIGH in setup)
+#define PIN_LED_GREEN_STATUS    2    // Status LED (Solid = Nodes 1 & 2 synced; Rapid blink = timeout)
 #define PIN_BUZZER              4    // High-pitch alarm buzzer (Active buzzer or PWM drive)
 
 #define PIN_SERVER_INTERRUPT    10   // AI Server Hardware Interrupt (Active LOW with internal pull-up)
 
-#define PIN_GSM_RX              18   // ESP32-S3 RX1 -> connected to SIM module TX
-#define PIN_GSM_TX              17   // ESP32-S3 TX1 -> connected to SIM module RX
+#define PIN_GSM_RX              18   // ESP32-S3 RX1 -> connected to SIM300L TX
+#define PIN_GSM_TX              17   // ESP32-S3 TX1 -> connected to SIM300L RX
+
+#define PIN_I2C_SDA             8    // ESP32-S3 hardware I2C SDA
+#define PIN_I2C_SCL             9    // ESP32-S3 hardware I2C SCL
+#define LCD_I2C_ADDR            0x27 // Default PCF8574 backpack address (change to 0x3F if required)
+#define LCD_COLS                16
+#define LCD_ROWS                2
 
 /* ====================================================================================================
  * 2. SYSTEM CONFIGURATION & SAFETY THRESHOLDS
  * ==================================================================================================== */
-#define ESPNOW_WIFI_CHANNEL         1               // Channel for ESP-NOW TDMA cluster (RF Locked)
-#define EMERGENCY_PHONE_NUMBER      "+919876543210" // Destination phone number for SMS alerts
+#define ESPNOW_WIFI_CHANNEL     1               // Channel for ESP-NOW TDMA cluster (RF Locked)
+#define EMERGENCY_PHONE_NUMBER  "+919876543210" // Destination phone number for SMS alerts
 
-#define CRITICAL_DISPLACEMENT_THRESH_MM 15.0f       // Critical rock mass displacement trigger (mm)
-#define CRITICAL_TILT_THRESH_DEG        5.0f        // Critical angular tilt trigger (degrees)
-#define CRITICAL_VIBRATION_THRESH_G     0.8f        // Critical vibration threshold (g) - catches SW-420 & dynamic shock
-#define NODE_TIMEOUT_MS                 3500        // Timeout threshold before marking a node offline
+#define CRITICAL_DISPLACEMENT_THRESH_MM 15.0f   // Critical rock mass displacement trigger (mm)
+#define CRITICAL_TILT_THRESH_DEG        5.0f    // Critical angular tilt trigger (degrees)
+#define NODE_TIMEOUT_MS                 3500    // Timeout threshold before marking a node offline
 
-#define TDMA_FRAME_PERIOD_MS        1000            // Master TDMA superframe period (1000 ms)
-#define TDMA_SLOT_DURATION_MS       80              // Transmit window duration per node (80 ms)
-#define STATUS_BLINK_INTERVAL_MS    150             // Rapid blink rate when any demo node times out
-#define SMS_COOLDOWN_MS             60000           // 60s cooldown between automated threshold SMS sends
-#define ISR_DEBOUNCE_GUARD_MS       1000            // Debounce guard for AI Server hardware interrupt
+#define TDMA_FRAME_PERIOD_MS    1000            // Master TDMA superframe period (1000 ms)
+#define TDMA_SLOT_DURATION_MS   80              // Transmit window duration per node (80 ms)
+#define LCD_REFRESH_INTERVAL_MS 250             // Non-blocking LCD refresh interval
+#define LCD_ROTATE_INTERVAL_MS  2000            // Rotate LCD telemetry between Node 1 & 2 every 2s
+#define STATUS_BLINK_INTERVAL_MS 150            // Rapid blink rate when any demo node times out
+#define SMS_COOLDOWN_MS         60000           // 60s cooldown between automated threshold SMS sends
 
 /* ====================================================================================================
  * 3. EMBEDDED 1D DISCRETE KALMAN FILTER ENGINE
@@ -97,26 +73,15 @@
 class DiscreteKalmanFilter1D {
 public:
     DiscreteKalmanFilter1D(float process_noise = 0.02f, float measurement_noise = 1.5f, float estimation_error = 1.0f, float initial_value = 0.0f)
-        : _q(process_noise), _r(measurement_noise), _p(estimation_error), _x(initial_value), _k(0.0f), _initialized(false) {}
+        : _q(process_noise), _r(measurement_noise), _p(estimation_error), _x(initial_value), _k(0.0f) {}
 
     float update(float measurement) {
-        if (!_initialized) {
-            _x = measurement;
-            _initialized = true;
-            return _x;
-        }
         _p = _p + _q;
         float denominator = _p + _r;
         _k = (fabs(denominator) > 1e-6f) ? (_p / denominator) : 0.5f;
         _x = _x + _k * (measurement - _x);
         _p = (1.0f - _k) * _p;
         return _x;
-    }
-
-    void reset(float initial_value = 0.0f) {
-        _x = initial_value;
-        _p = 1.0f;
-        _initialized = false;
     }
 
     float getState() const { return _x; }
@@ -128,7 +93,6 @@ private:
     float _p;
     float _x;
     float _k;
-    bool  _initialized;
 };
 
 /* ====================================================================================================
@@ -138,7 +102,7 @@ private:
 #define PKT_TYPE_TELEMETRY 0x02
 
 struct __attribute__((packed)) TDMABeaconPacket {
-    uint8_t  msg_type;           // PKT_TYPE_BEACON (0x01)
+    uint8_t  msg_type;           // PKT_TYPE_BEACON
     uint32_t frame_id;          // Monotonically increasing frame counter
     uint32_t beacon_time_ms;    // Master clock timestamp
     uint16_t slot_duration_ms;  // Slot duration (80ms)
@@ -147,10 +111,10 @@ struct __attribute__((packed)) TDMABeaconPacket {
 };
 
 struct __attribute__((packed)) SensorPayload {
-    uint8_t  msg_type;          // PKT_TYPE_TELEMETRY (0x02)
+    uint8_t  msg_type;          // PKT_TYPE_TELEMETRY
     uint8_t  node_id;           // 1 = Node 1, 2 = Node 2
     float    tilt;              // Raw Tilt angle (degrees)
-    float    vibration;         // Raw Vibration acceleration (g)
+    float    vibration;         // Raw Vibration acceleration (g or m/s^2)
     float    displacement;      // Raw Surface/Roof displacement (mm)
 };
 
@@ -175,15 +139,10 @@ struct SmsAlertRequest {
 uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 HardwareSerial SerialGSM(1);
-QueueHandle_t gsmQueue = NULL;
-
-#if ENABLE_I2C_LCD
 LiquidCrystal_I2C lcd(LCD_I2C_ADDR, LCD_COLS, LCD_ROWS);
 bool lcdAvailable = false;
-uint32_t lastLcdUpdateTime = 0;
-uint32_t lastLcdRotateTime = 0;
-uint8_t  currentLcdDisplayNode = 1;
-#endif
+
+QueueHandle_t gsmQueue = NULL;
 
 #define MAX_SUPPORTED_NODES 3 // Index 0 unused, Index 1 = Node 1, Index 2 = Node 2
 
@@ -202,7 +161,7 @@ DiscreteKalmanFilter1D kfVibration[MAX_SUPPORTED_NODES] = {
 
 DiscreteKalmanFilter1D kfDisplacement[MAX_SUPPORTED_NODES] = {
     DiscreteKalmanFilter1D(0.01f, 0.8f),
-    DiscreteKalmanFilter1D(0.01f, 0.8f), // Node 1 Ultrasonic Displacement (Auto-seeding)
+    DiscreteKalmanFilter1D(0.01f, 0.8f), // Node 1 Ultrasonic Displacement
     DiscreteKalmanFilter1D(0.01f, 0.8f)  // Node 2 (Bypassed)
 };
 
@@ -211,18 +170,16 @@ FilteredNodeRecord nodes[MAX_SUPPORTED_NODES];
 // System State & Non-Blocking Timers
 uint32_t tdmaFrameId = 0;
 uint32_t lastBeaconTxTime = 0;
+uint32_t lastLcdUpdateTime = 0;
+uint32_t lastLcdRotateTime = 0;
+uint8_t  currentLcdDisplayNode = 1;
 uint32_t lastBlinkTime = 0;
 bool     greenLedState = false;
 uint32_t lastAutoSmsDispatchTime = 0;
 
-// Dual-Core Thread-Safe Concurrency Flags
 volatile bool serverInterruptTriggered = false;
-volatile bool criticalAlarmActive = false;
-volatile uint32_t lastIsrTriggerTime = 0;
-
-// Unified Buzzer Control (Core 1 Ownership, Core 0 Signaling)
-volatile uint8_t gsmWarningBeepStepsRemaining = 0; // Each beep = 1 ON step + 1 OFF step (6 steps = 3 beeps)
-uint32_t lastBuzzerStepTime = 0;
+bool smsAlertDispatchedForAi = false;
+bool criticalAlarmActive = false;
 
 /* ====================================================================================================
  * 6. FORWARD DECLARATIONS
@@ -230,7 +187,6 @@ uint32_t lastBuzzerStepTime = 0;
 void vGsmSmsTask(void *pvParameters);
 void sendSMSAlertBlocking(const char* alertMessage);
 void triggerSmsAlert(const char* alertMsg);
-void requestGsmWarningBeeps(uint8_t numBeeps);
 void IRAM_ATTR handleServerInterruptISR();
 void processIncomingData(const SensorPayload& payload);
 void broadcastTDMABeacon();
@@ -239,24 +195,15 @@ void initESPNowTDMA();
 bool areAllDemoNodesSynced();
 void updateStatusLEDs();
 void handleBuzzerAlerts();
-void checkSerialCommands();
-#if ENABLE_I2C_LCD
 void lcdPrintPaddedLine(uint8_t row, const char* text);
 void updateLCDDisplay();
-#endif
+void checkSerialCommands();
 
 /* ====================================================================================================
  * 7. HARDWARE INTERRUPT SERVICE ROUTINE (ISR) FOR AI SERVER
  * ==================================================================================================== */
 void IRAM_ATTR handleServerInterruptISR() {
-    uint32_t now = millis();
-    // Millisecond debounce guard prevents contact bounce or EMI from flooding the FreeRTOS queue
-    if (now - lastIsrTriggerTime < ISR_DEBOUNCE_GUARD_MS) {
-        return;
-    }
-    lastIsrTriggerTime = now;
     serverInterruptTriggered = true;
-
     if (gsmQueue != NULL) {
         SmsAlertRequest req;
         const char* msg = "EMERGENCY: AI Model predicts mine subsidence event! Evacuate Sector B!";
@@ -274,11 +221,6 @@ void IRAM_ATTR handleServerInterruptISR() {
 /* ====================================================================================================
  * 8. FREERTOS CORE 0 CELLULAR GSM TASK (NON-BLOCKING BACKGROUND DISPATCH)
  * ==================================================================================================== */
-void requestGsmWarningBeeps(uint8_t numBeeps) {
-    // 2 state changes per beep: ON then OFF
-    gsmWarningBeepStepsRemaining = numBeeps * 2;
-}
-
 void vGsmSmsTask(void *pvParameters) {
     Serial.println("[FreeRTOS Core 0] GSM Background Task initialized.");
     SmsAlertRequest request;
@@ -292,81 +234,21 @@ void vGsmSmsTask(void *pvParameters) {
     }
 }
 
-/**
- * Robust AT response reader with configurable timeout and termination search
- */
-bool waitForGsmResponse(const char* expected1, const char* expected2, uint32_t timeoutMs, String* outResponse = NULL) {
-    uint32_t start = millis();
-    String resp = "";
-    while (millis() - start < timeoutMs) {
-        while (SerialGSM.available()) {
-            char c = SerialGSM.read();
-            resp += c;
-        }
-        if (expected1 && resp.indexOf(expected1) != -1) {
-            if (outResponse) *outResponse = resp;
-            return true;
-        }
-        if (expected2 && resp.indexOf(expected2) != -1) {
-            if (outResponse) *outResponse = resp;
-            return true;
-        }
-        if (resp.indexOf("ERROR") != -1) {
-            if (outResponse) *outResponse = resp;
-            return false;
-        }
-        vTaskDelay(pdMS_TO_TICKS(20));
-    }
-    if (outResponse) *outResponse = resp;
-    return false;
-}
-
 void sendSMSAlertBlocking(const char* alertMessage) {
-    // Drain any stale bytes from UART RX buffer
     while (SerialGSM.available()) SerialGSM.read();
 
-    // 1. Check Network Registration Status with active polling
-    bool isRegistered = false;
-    for (int attempt = 0; attempt < 2; attempt++) {
-        SerialGSM.println("AT+CREG?");
-        String regResp = "";
-        waitForGsmResponse("OK", "+CREG:", 1500, &regResp);
-
-        // Registered Home (+CREG: 0,1 / 1,1) or Registered Roaming (+CREG: 0,5 / 1,5)
-        if (regResp.indexOf(",1") != -1 || regResp.indexOf(",5") != -1 ||
-            regResp.indexOf(", 1") != -1 || regResp.indexOf(", 5") != -1 ||
-            regResp.indexOf(": 1") != -1 || regResp.indexOf(": 5") != -1) {
-            isRegistered = true;
-            break;
-        }
-        vTaskDelay(pdMS_TO_TICKS(500));
-    }
-
-    if (!isRegistered) {
-        Serial.println("\n[GSM CRITICAL FAILURE] SIM module is OUT OF COVERAGE or UNREGISTERED!");
-        Serial.println("[GSM ALERT] Unable to deliver SMS due to lack of network signal.");
-        // Notify Core 1 to sound 3 warning beeps without GPIO pin race
-        requestGsmWarningBeeps(3);
-        return;
-    }
-
-    // 2. Configure SMS Text Mode
-    while (SerialGSM.available()) SerialGSM.read();
     SerialGSM.println("AT+CMGF=1");
-    waitForGsmResponse("OK", NULL, 1000);
+    vTaskDelay(pdMS_TO_TICKS(200));
 
-    // 3. Initiate SMS transmission
     SerialGSM.print("AT+CMGS=\"");
     SerialGSM.print(EMERGENCY_PHONE_NUMBER);
     SerialGSM.println("\"");
 
-    // 4. Wait for '>' prompt with timeout guard
     uint32_t promptTimeout = millis();
     bool promptReceived = false;
     while (millis() - promptTimeout < 5000) {
         if (SerialGSM.available()) {
-            char c = SerialGSM.read();
-            if (c == '>') {
+            if (SerialGSM.read() == '>') {
                 promptReceived = true;
                 break;
             }
@@ -375,33 +257,35 @@ void sendSMSAlertBlocking(const char* alertMessage) {
     }
 
     if (!promptReceived) {
-        Serial.println("[GSM ERROR Core 0] Prompt '>' not received! Aborting SMS session.");
-        SerialGSM.write(0x1B); // Send ESC to abort any hung AT+CMGS session
-        vTaskDelay(pdMS_TO_TICKS(200));
-        requestGsmWarningBeeps(3);
+        Serial.println("[GSM ERROR Core 0] Prompt '>' not received from SIM module!");
         return;
     }
 
-    // 5. Send message payload and terminate with Ctrl+Z (0x1A)
     SerialGSM.print(alertMessage);
     vTaskDelay(pdMS_TO_TICKS(100));
-    SerialGSM.write(0x1A); // Commit SMS
+    SerialGSM.write(0x1A); // Commit SMS with Ctrl+Z
 
-    // 6. Await carrier delivery confirmation (up to 20 seconds)
+    uint32_t sendTimeout = millis();
+    bool sendSuccess = false;
     String gsmResponse = "";
-    bool sendSuccess = waitForGsmResponse("OK", "+CMGS:", 20000, &gsmResponse);
+    while (millis() - sendTimeout < 15000) {
+        while (SerialGSM.available()) {
+            char c = SerialGSM.read();
+            gsmResponse += c;
+        }
+        if (gsmResponse.indexOf("OK") != -1 || gsmResponse.indexOf("+CMGS:") != -1) {
+            sendSuccess = true;
+            break;
+        }
+        if (gsmResponse.indexOf("ERROR") != -1) break;
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
 
     if (sendSuccess) {
         Serial.println("[GSM SUCCESS Core 0] Emergency SMS successfully delivered to cellular network!");
     } else {
-        Serial.printf("[GSM ERROR Core 0] SMS transmission failed (No Signal/Network Reject): %s\n", gsmResponse.c_str());
-        SerialGSM.write(0x1B); // Clean up modem state
-        requestGsmWarningBeeps(3);
+        Serial.printf("[GSM ERROR Core 0] SMS transmission failed: %s\n", gsmResponse.c_str());
     }
-
-    // Cleanly flush trailing characters
-    vTaskDelay(pdMS_TO_TICKS(200));
-    while (SerialGSM.available()) SerialGSM.read();
 }
 
 void triggerSmsAlert(const char* alertMsg) {
@@ -427,16 +311,14 @@ void processIncomingData(const SensorPayload& payload) {
     nodes[id].raw_displacement = payload.displacement;
 
     if (id == 1) {
-        // Continuous Geotechnical Node: Processed through dedicated 1D Kalman Filters
         nodes[1].filtered_tilt = kfTilt[1].update(payload.tilt);
         nodes[1].filtered_vibration = kfVibration[1].update(payload.vibration);
         nodes[1].filtered_displacement = kfDisplacement[1].update(payload.displacement);
     } 
     else if (id == 2) {
-        // Discrete Tripwire Node: Direct digital override (bypasses Kalman filter for instant tripping)
-        nodes[2].filtered_tilt = payload.tilt;                 
-        nodes[2].filtered_vibration = payload.vibration;       
-        nodes[2].filtered_displacement = payload.displacement; 
+        nodes[2].filtered_tilt = payload.tilt;                 // 10.0f on trigger (breaches 5.0f limit instantly)
+        nodes[2].filtered_vibration = payload.vibration;       // 1.0f on trigger
+        nodes[2].filtered_displacement = payload.displacement; // 0.0f
     }
     else {
         nodes[id].filtered_tilt = kfTilt[id].update(payload.tilt);
@@ -448,45 +330,33 @@ void processIncomingData(const SensorPayload& payload) {
                   id, (id == 2 ? "DIGITAL OVERRIDE" : "KALMAN FILTERED"),
                   nodes[id].filtered_tilt, nodes[id].filtered_vibration, nodes[id].filtered_displacement);
 
-    // Multi-criteria safety limit evaluation (Displacement, Angular Tilt, OR Seismic/Tripwire Vibration)
-    bool isBreached = (nodes[id].filtered_displacement >= CRITICAL_DISPLACEMENT_THRESH_MM) ||
-                      (fabs(nodes[id].filtered_tilt) >= CRITICAL_TILT_THRESH_DEG) ||
-                      (nodes[id].filtered_vibration >= CRITICAL_VIBRATION_THRESH_G);
-
-    if (isBreached) {
+    if (nodes[id].filtered_displacement >= CRITICAL_DISPLACEMENT_THRESH_MM ||
+        fabs(nodes[id].filtered_tilt) >= CRITICAL_TILT_THRESH_DEG) {
         criticalAlarmActive = true;
-        Serial.printf("[LOCAL ALERT] Node %d breached safety limit! Tilt: %.1f deg, Vib: %.2f g, Disp: %.1f mm\n",
-                      id, nodes[id].filtered_tilt, nodes[id].filtered_vibration, nodes[id].filtered_displacement);
+        Serial.printf("[LOCAL ALERT] Node %d breached safety limit! Tilt: %.1f deg, Disp: %.1f mm\n",
+                      id, nodes[id].filtered_tilt, nodes[id].filtered_displacement);
 
         uint32_t now = millis();
         if (now - lastAutoSmsDispatchTime > SMS_COOLDOWN_MS) {
             lastAutoSmsDispatchTime = now;
             char autoAlert[140];
             snprintf(autoAlert, sizeof(autoAlert),
-                     "CRITICAL ALERT: Mine Movement at Node %d! Tilt: %.1fdeg, Vib: %.2fg, Disp: %.1fmm.",
-                     id, nodes[id].filtered_tilt, nodes[id].filtered_vibration, nodes[id].filtered_displacement);
+                     "CRITICAL ALERT: Mine Movement at Node %d! Tilt: %.1fdeg, Disp: %.1fmm.",
+                     id, nodes[id].filtered_tilt, nodes[id].filtered_displacement);
             triggerSmsAlert(autoAlert);
         }
     } else {
-        // Auto-clear sensor alarm: scan all active nodes.
-        // If every node is currently within safe limits, clear the alarm and stop the buzzer.
-        // NOTE: serverInterruptTriggered (AI prediction) always requires a manual RESET command.
         if (!serverInterruptTriggered) {
             bool anyNodeBreached = false;
             for (int i = 1; i < MAX_SUPPORTED_NODES; i++) {
-                if (nodes[i].active) {
-                    if ((nodes[i].filtered_displacement >= CRITICAL_DISPLACEMENT_THRESH_MM) ||
-                        (fabs(nodes[i].filtered_tilt)  >= CRITICAL_TILT_THRESH_DEG)        ||
-                        (nodes[i].filtered_vibration   >= CRITICAL_VIBRATION_THRESH_G)) {
-                        anyNodeBreached = true;
-                        break;
-                    }
+                if (nodes[i].active &&
+                    (nodes[i].filtered_displacement >= CRITICAL_DISPLACEMENT_THRESH_MM ||
+                     fabs(nodes[i].filtered_tilt) >= CRITICAL_TILT_THRESH_DEG)) {
+                    anyNodeBreached = true;
+                    break;
                 }
             }
             if (!anyNodeBreached) {
-                if (criticalAlarmActive) {
-                    Serial.println("[SYSTEM] All nodes within safe limits — alarm auto-cleared.");
-                }
                 criticalAlarmActive = false;
             }
         }
@@ -508,8 +378,7 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
             processIncomingData(packet);
         }
     } else {
-        Serial.printf("[ESP-NOW WARN] Unknown packet size: %d bytes (Expected %u)\n", 
-                      len, (unsigned int)sizeof(SensorPayload));
+        Serial.printf("[ESP-NOW WARN] Unknown packet size: %d bytes\n", len);
     }
 }
 
@@ -527,7 +396,7 @@ void broadcastTDMABeacon() {
 
     esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *)&beacon, sizeof(beacon));
     if (result != ESP_OK) {
-        Serial.printf("[TDMA] Beacon broadcast error: 0x%X\n", result);
+        Serial.printf("[TDMA] Beacon broadcast error: %d\n", result);
     }
 }
 
@@ -537,7 +406,7 @@ void broadcastTDMABeacon() {
 void initHardware() {
     pinMode(PIN_LED_RED_POWER, OUTPUT);
     pinMode(PIN_LED_GREEN_STATUS, OUTPUT);
-    digitalWrite(PIN_LED_RED_POWER, HIGH);  // Continuous HIGH power indicator
+    digitalWrite(PIN_LED_RED_POWER, HIGH);  // RED LED set HIGH continuously to denote system power
     digitalWrite(PIN_LED_GREEN_STATUS, LOW);
 
     pinMode(PIN_BUZZER, OUTPUT);
@@ -546,7 +415,6 @@ void initHardware() {
     pinMode(PIN_SERVER_INTERRUPT, INPUT_PULLUP);
     attachInterrupt(digitalPinToInterrupt(PIN_SERVER_INTERRUPT), handleServerInterruptISR, FALLING);
 
-#if ENABLE_I2C_LCD
     Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
     Wire.beginTransmission(LCD_I2C_ADDR);
     if (Wire.endTransmission() == 0) {
@@ -561,33 +429,21 @@ void initHardware() {
         lcdAvailable = false;
         Serial.println("[I2C WARN] LCD 16x2 not detected on 0x27.");
     }
-#endif
 
-    // Initialize SIM Module UART
     SerialGSM.begin(9600, SERIAL_8N1, PIN_GSM_RX, PIN_GSM_TX);
     delay(1000);
-
-    // Initial AT synchronization handshake (clears boot noise & validates baud)
-    for (int i = 0; i < 5; i++) {
-        while (SerialGSM.available()) SerialGSM.read();
-        SerialGSM.println("AT");
-        if (waitForGsmResponse("OK", NULL, 500)) break;
-        delay(200);
-    }
-
-    SerialGSM.println("ATE0");      // Disable command echo
-    waitForGsmResponse("OK", NULL, 300);
-    SerialGSM.println("AT+CMGF=1");  // Text mode
-    waitForGsmResponse("OK", NULL, 300);
-
-    Serial.println("[GSM] Cellular Serial interface initialized.");
+    SerialGSM.println("AT");
+    delay(200);
+    SerialGSM.println("ATE0");
+    delay(200);
+    SerialGSM.println("AT+CMGF=1");
 }
 
 void initESPNowTDMA() {
     WiFi.mode(WIFI_STA);
     WiFi.disconnect();
 
-    // Explicitly lock physical Wi-Fi hardware transceiver to Channel 1
+    // Explicitly lock physical Wi-Fi hardware to Channel 1
     esp_err_t chanErr = esp_wifi_set_channel(ESPNOW_WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
     if (chanErr == ESP_OK) {
         Serial.printf("[RF LOCK] Wi-Fi Hardware locked to Channel %d\n", ESPNOW_WIFI_CHANNEL);
@@ -597,16 +453,16 @@ void initESPNowTDMA() {
 
     if (esp_now_init() != ESP_OK) {
         Serial.println("[ESP-NOW] Critical Init Failure!");
+        if (lcdAvailable) {
+            lcd.clear();
+            lcdPrintPaddedLine(0, "ESP-NOW ERR!");
+        }
         while (1) delay(1000);
     }
 
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
-    esp_now_register_recv_cb((esp_now_recv_cb_t)OnDataRecv);
-#else
-    esp_now_register_recv_cb((esp_now_recv_cb_t)OnDataRecv);
-#endif
+    esp_now_register_recv_cb(OnDataRecv);
 
-    esp_now_peer_info_t peerInfo = {}; // Zero-init defaults ifidx to WIFI_IF_STA (0) on all IDF versions
+    esp_now_peer_info_t peerInfo = {};
     memcpy(peerInfo.peer_addr, broadcastAddress, 6);
     peerInfo.channel = ESPNOW_WIFI_CHANNEL;
     peerInfo.encrypt = false;
@@ -617,8 +473,17 @@ void initESPNowTDMA() {
 }
 
 /* ====================================================================================================
- * 13. UI & INDICATOR LOGIC (CORE 1)
+ * 13. UI & INDICATOR LOGIC (CORE 1) - ZERO-GHOSTING LCD PRINT ENGINE
  * ==================================================================================================== */
+
+void lcdPrintPaddedLine(uint8_t row, const char* text) {
+    if (!lcdAvailable) return;
+    char buffer[17];
+    snprintf(buffer, sizeof(buffer), "%-16.16s", text);
+    lcd.setCursor(0, row);
+    lcd.print(buffer);
+}
+
 bool areAllDemoNodesSynced() {
     uint32_t now = millis();
     bool node1Synced = nodes[1].active && (now - nodes[1].last_packet_time <= NODE_TIMEOUT_MS);
@@ -635,7 +500,7 @@ void updateStatusLEDs() {
     bool allSynced = areAllDemoNodesSynced();
 
     if (allSynced) {
-        digitalWrite(PIN_LED_GREEN_STATUS, HIGH); // Solid ON when both nodes active & synchronized
+        digitalWrite(PIN_LED_GREEN_STATUS, HIGH); // Solid ON when both nodes active & synced
     } else {
         if (now - lastBlinkTime >= STATUS_BLINK_INTERVAL_MS) {
             lastBlinkTime = now;
@@ -645,48 +510,18 @@ void updateStatusLEDs() {
     }
 }
 
-/**
- * Non-blocking buzzer state machine owned strictly by Core 1.
- * Handles continuous emergency alarms AND transient GSM failure warning beeps without core fighting.
- */
 void handleBuzzerAlerts() {
-    uint32_t now = millis();
-
-    // Priority 1: Continuous pulsed alarm for critical subsidence or AI prediction
     if (criticalAlarmActive || serverInterruptTriggered) {
-        uint32_t cycle = now % 400;
+        uint32_t cycle = millis() % 400;
         digitalWrite(PIN_BUZZER, (cycle < 200) ? HIGH : LOW);
-        return;
+    } else {
+        digitalWrite(PIN_BUZZER, LOW);
     }
-
-    // Priority 2: Non-blocking warning beeps signaled by GSM task
-    // Steps count DOWN from (numBeeps*2). Even step = Buzzer ON, Odd step = Buzzer OFF.
-    // e.g. 3 beeps: steps 6(ON),5(OFF),4(ON),3(OFF),2(ON),1(OFF) -> correct beep-then-silence pattern
-    if (gsmWarningBeepStepsRemaining > 0) {
-        if (now - lastBuzzerStepTime >= 100) {
-            lastBuzzerStepTime = now;
-            bool buzzerOn = (gsmWarningBeepStepsRemaining % 2 == 0); // Even step = ON (starts HIGH)
-            digitalWrite(PIN_BUZZER, buzzerOn ? HIGH : LOW);
-            gsmWarningBeepStepsRemaining--;
-        }
-        return;
-    }
-
-    // Default: Safe state
-    digitalWrite(PIN_BUZZER, LOW);
-}
-
-#if ENABLE_I2C_LCD
-void lcdPrintPaddedLine(uint8_t row, const char* text) {
-    if (!lcdAvailable) return;
-    char buffer[17];
-    snprintf(buffer, sizeof(buffer), "%-16.16s", text);
-    lcd.setCursor(0, row);
-    lcd.print(buffer);
 }
 
 void updateLCDDisplay() {
     if (!lcdAvailable) return;
+
     uint32_t now = millis();
 
     if (now - lastLcdRotateTime >= LCD_ROTATE_INTERVAL_MS) {
@@ -719,56 +554,38 @@ void updateLCDDisplay() {
     uint8_t n = currentLcdDisplayNode;
 
     if (nodes[n].active && (now - nodes[n].last_packet_time <= NODE_TIMEOUT_MS)) {
+        // MANDATORY AUDIT FIX: Formatted with %+04.1f so line0 is strictly 16 chars ("N1 T:+0.0 V:0.00")
+        // Eliminates second decimal truncation on Vibration reading!
         snprintf(line0, sizeof(line0), "N%d T:%+04.1f V:%.2f",
                  n, nodes[n].filtered_tilt, nodes[n].filtered_vibration);
 
+        // Padded status indicator (%-5s) guarantees exact 16-character row
         const char* statusTag = (n == 2) ? "[DIG]" : "[OK] ";
         snprintf(line1, sizeof(line1), "D:%04.1fmm %-5s",
                  nodes[n].filtered_displacement, statusTag);
     } else {
         snprintf(line0, sizeof(line0), "NODE %d: TIMEOUT", n);
-        snprintf(line1, sizeof(line1), "FRAME #%lu SYNC", (unsigned long)tdmaFrameId);
+        snprintf(line1, sizeof(line1), "FRAME #%lu SYNC", tdmaFrameId);
     }
 
     lcdPrintPaddedLine(0, line0);
     lcdPrintPaddedLine(1, line1);
 }
-#endif
 
-/**
- * Completely non-blocking serial command receiver.
- * Accumulates characters until newline without pausing or blocking the TDMA clock.
- */
 void checkSerialCommands() {
-    static char cmdBuffer[64];
-    static uint8_t cmdPos = 0;
-
-    while (Serial.available()) {
-        char c = (char)Serial.read();
-        if (c == '\n' || c == '\r') {
-            if (cmdPos > 0) {
-                cmdBuffer[cmdPos] = '\0';
-                String cmd = String(cmdBuffer);
-                cmd.trim();
-
-                if (cmd.startsWith("ALERT") || cmd.startsWith("INTERRUPT")) {
-                    Serial.printf("[AI COMMAND] Emergency alert received: %s\n", cmd.c_str());
-                    serverInterruptTriggered = true;
-                    triggerSmsAlert("EMERGENCY: AI Model predicts mine subsidence event at Section B! Evacuate!");
-                } else if (cmd.equalsIgnoreCase("RESET")) {
-                    serverInterruptTriggered = false;
-                    criticalAlarmActive = false;
-                    gsmWarningBeepStepsRemaining = 0;
-                    digitalWrite(PIN_BUZZER, LOW);
-                    Serial.println("[SYSTEM] Safety reset acknowledged. Alarms cleared.");
-                }
-
-                cmdPos = 0; // Reset buffer
-            }
-        } else {
-            if (cmdPos < sizeof(cmdBuffer) - 1) {
-                cmdBuffer[cmdPos++] = c;
-            }
+    if (Serial.available()) {
+        String cmd = Serial.readStringUntil('\n');
+        cmd.trim();
+        if (cmd.startsWith("ALERT") || cmd.startsWith("INTERRUPT")) {
+            Serial.printf("[AI COMMAND] Emergency alert: %s\n", cmd.c_str());
+            serverInterruptTriggered = true;
+            triggerSmsAlert("EMERGENCY: AI Model predicts mine subsidence event at Section B! Evacuate!");
+        } else if (cmd.equalsIgnoreCase("RESET")) {
+            serverInterruptTriggered = false;
+            criticalAlarmActive = false;
+            smsAlertDispatchedForAi = false;
+            digitalWrite(PIN_BUZZER, LOW);
+            Serial.println("[SYSTEM] System reset to safe.");
         }
     }
 }
@@ -779,19 +596,20 @@ void checkSerialCommands() {
 void setup() {
     Serial.begin(115200);
     delay(1000);
-    Serial.println("\n[SYSTEM] ESP32-S3 Central Master Hub (central_hub_esp32s3_v6) Booting...");
+    Serial.println("\n[SYSTEM] ESP32-S3 Central Master Hub (central_hub_esp32s3_5) Booting...");
 
-    // Create FreeRTOS Queue BEFORE attaching interrupts in initHardware()
+    // MANDATORY AUDIT FIX: 1. Create FreeRTOS Queue BEFORE attaching interrupts in initHardware()
+    // Prevents missed SMS alerts if GPIO 10 transitions LOW during bootup
     gsmQueue = xQueueCreate(5, sizeof(SmsAlertRequest));
     if (gsmQueue != NULL) {
         Serial.println("[FreeRTOS] GSM Message Queue created.");
     }
 
-    // Initialize Hardware & ESP-NOW TDMA
+    // 2. Initialize Hardware & Interrupts safely with valid queue
     initHardware();
     initESPNowTDMA();
 
-    // Spawn dedicated GSM SMS worker task PINNED TO CORE 0
+    // 3. Spawn dedicated GSM SMS worker task PINNED TO CORE 0
     xTaskCreatePinnedToCore(
         vGsmSmsTask,        // Function
         "vGsmSmsTask",      // Name
@@ -811,17 +629,13 @@ void setup() {
 void loop() {
     uint32_t currentMillis = millis();
 
-    // Master TDMA Beacon Broadcast (Strict 1000ms superframe)
     if (currentMillis - lastBeaconTxTime >= TDMA_FRAME_PERIOD_MS) {
         lastBeaconTxTime = currentMillis;
         broadcastTDMABeacon();
     }
 
-    // Real-Time Non-Blocking Subsystems
     checkSerialCommands();
     updateStatusLEDs();
     handleBuzzerAlerts();
-#if ENABLE_I2C_LCD
     updateLCDDisplay();
-#endif
 }
