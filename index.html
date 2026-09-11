@@ -2366,18 +2366,20 @@
 
         
         // =========================================================================
-        // EMERGENCY HAZARD ALERT EMAIL DISPATCHER
+        // EMERGENCY HAZARD ALERT EMAIL DISPATCHER (MULTI-NODE DANGER TRACKING)
         // =========================================================================
         let lastAlertEmailTimestamp = 0;
         let lastAlertEmailLevel = null;
-        const ALERT_EMAIL_COOLDOWN_MS = 60 * 1000; // 60 seconds cooldown for repeated identical alerts
+        let lastDangerNodeState = null; // 'NODE_01', 'NODE_02', 'BOTH', or null
+        let lastDangerAlertTimestamp = 0;
+        const ALERT_EMAIL_COOLDOWN_MS = 60 * 1000; // 60 seconds cooldown for identical node alert state
 
         // Helper to collect all registered users' emails for emergency broadcast
         function getAllRegisteredPersonnelEmails() {
             const users = getUsers();
             const emails = new Set();
 
-            // 1. Loop through all verified registered accounts
+            // Loop through all verified registered accounts in database
             Object.keys(users).forEach(uname => {
                 const u = users[uname];
                 if (u && u.email && u.email.includes("@")) {
@@ -2386,11 +2388,7 @@
                 }
             });
 
-            // If other registered users exist, exclude the sender (Admin) email
-            if (emails.size > 1 && emails.has("miningwithigniters@gmail.com")) {
-                emails.delete("miningwithigniters@gmail.com");
-            }
-
+            // Always ensure master email is included if no others found
             if (emails.size === 0) {
                 emails.add("miningwithigniters@gmail.com");
             }
@@ -2398,12 +2396,12 @@
             return Array.from(emails);
         }
 
-        function showEmergencyEmailToast(recipients, level, msg) {
+        function showEmergencyEmailToast(recipients, level, msg, nodeInfo) {
             let toast = document.getElementById("emergency-email-toast");
             if (!toast) {
                 toast = document.createElement("div");
                 toast.id = "emergency-email-toast";
-                toast.style.cssText = "position: fixed; top: 20px; right: 20px; z-index: 99999; color: #fff; padding: 14px 20px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); font-size: 0.88rem; font-weight: 600; border-left: 6px solid #fef08a; display: flex; align-items: center; gap: 12px; transition: opacity 0.4s ease; backdrop-filter: blur(8px); max-width: 550px;";
+                toast.style.cssText = "position: fixed; top: 20px; right: 20px; z-index: 99999; color: #fff; padding: 14px 20px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); font-size: 0.88rem; font-weight: 600; border-left: 6px solid #fef08a; display: flex; align-items: center; gap: 12px; transition: opacity 0.4s ease; backdrop-filter: blur(8px); max-width: 580px;";
                 document.body.appendChild(toast);
             }
             const isDanger = level === "DANGER";
@@ -2413,7 +2411,7 @@
             if (Array.isArray(recipients)) {
                 if (recipients.length === 1) {
                     toDisplayStr = recipients[0];
-                } else if (recipients.length <= 2) {
+                } else if (recipients.length <= 3) {
                     toDisplayStr = recipients.join(", ");
                 } else {
                     toDisplayStr = `All ${recipients.length} Registered Personnel (${recipients.slice(0, 2).join(', ')} +${recipients.length - 2} more)`;
@@ -2422,10 +2420,13 @@
                 toDisplayStr = String(recipients);
             }
 
+            const nodeLabel = nodeInfo ? `<div style="font-size: 0.82rem; color: #fef08a; margin-bottom: 2px;">⚡ Node Source: <strong>${nodeInfo}</strong></div>` : "";
+
             toast.innerHTML = `
-                <span style="font-size: 1.6rem;">🚨</span>
+                <span style="font-size: 1.8rem;">🚨</span>
                 <div>
                     <div style="font-weight: 800; font-size: 0.95rem; letter-spacing: 0.5px; text-transform: uppercase;">EMERGENCY EVACUATION ALERT DISPATCHED</div>
+                    ${nodeLabel}
                     <div style="margin-top: 3px; font-size: 0.85rem;">Dispatched from <strong style="color: #fef08a;">miningwithigniters@gmail.com</strong> &rarr; <strong style="text-decoration: underline; color: #fef08a;">${toDisplayStr}</strong></div>
                     <div style="margin-top: 5px; font-size: 0.82rem; background: rgba(0,0,0,0.3); padding: 5px 10px; border-radius: 4px; font-style: italic;">
                         "${msg}"
@@ -2443,30 +2444,31 @@
             }, 8500);
         }
 
-        async function dispatchEmergencyAlertEmail(level, tilt, vib, strain, forcedRecipient) {
+        async function dispatchEmergencyAlertEmail(level, tilt, vib, strain, forcedRecipient, customNodeId, customMessage) {
             try {
                 let recipientList = [];
                 if (forcedRecipient) {
-                    recipientList = [forcedRecipient.trim()];
+                    recipientList = forcedRecipient.split(",").map(s => s.trim()).filter(s => s && s.includes("@"));
                 } else {
                     recipientList = getAllRegisteredPersonnelEmails();
                 }
 
-                // If still empty (e.g. only Admin exists), fallback to operator
                 if (recipientList.length === 0) {
                     recipientList = ["miningwithigniters@gmail.com"];
                 }
 
                 const currentSite = MINING_SITES[selectedSiteKey] || MINING_SITES["site-1"];
                 const siteName = currentSite.name || "Kolar Gold Fields";
+                const targetNode = customNodeId || selectedNodeId || "NODE_01";
+                const targetMsg = customMessage || "Alert: you have to move from that current site";
 
                 const payload = {
                     recipient_email: recipientList.join(", "),
                     recipient_name: "All Registered Mine Personnel",
                     alert_level: level,
                     site_name: siteName,
-                    node_id: selectedNodeId || "NODE_01",
-                    message: "Alert: you have to move from that current site",
+                    node_id: targetNode,
+                    message: targetMsg,
                     tilt: parseFloat(tilt || 0),
                     vibration: parseFloat(vib || 0),
                     strain: parseFloat(strain || 0)
@@ -2483,11 +2485,11 @@
                     const resData = await res.json();
                     console.log("Emergency alert email delivered to registered users:", resData);
                 }
-                showEmergencyEmailToast(recipientList, level, "Alert: you have to move from that current site");
+                showEmergencyEmailToast(recipientList, level, targetMsg, targetNode);
             } catch (err) {
                 console.warn("Emergency alert email dispatch notice:", err);
                 const fallbackList = forcedRecipient ? [forcedRecipient] : ["Registered Personnel"];
-                showEmergencyEmailToast(fallbackList, level, "Alert: you have to move from that current site");
+                showEmergencyEmailToast(fallbackList, level, customMessage || "Alert: you have to move from that current site", customNodeId || selectedNodeId);
             }
         }
 
@@ -2602,13 +2604,85 @@
                 status = "SAFE";
             }
 
-            // Automatic Emergency Alert Email Dispatch on Hazard Detection
-            if (status === "WARNING" || status === "DANGER") {
-                const now = Date.now();
-                if (now - lastAlertEmailTimestamp > ALERT_EMAIL_COOLDOWN_MS || lastAlertEmailLevel !== status) {
-                    lastAlertEmailTimestamp = now;
-                    lastAlertEmailLevel = status;
-                    dispatchEmergencyAlertEmail(status, tiltVal, vibVal, strainVal);
+            // =========================================================================
+            // MULTI-NODE HAZARD EVALUATION (NODE_01, NODE_02, OR BOTH IN DANGER)
+            // =========================================================================
+            const currentSiteObj = MINING_SITES[selectedSiteKey] || MINING_SITES["site-1"];
+            const node01Obj = (currentSiteObj && currentSiteObj.nodes) ? currentSiteObj.nodes.find(n => n.id === "NODE_01") : null;
+            const node02Obj = (currentSiteObj && currentSiteObj.nodes) ? currentSiteObj.nodes.find(n => n.id === "NODE_02") : null;
+
+            if (selectedNodeId === "NODE_01" && node01Obj) {
+                node01Obj.status = status;
+                node01Obj.tilt = tiltVal;
+                node01Obj.vib = vibVal;
+                node01Obj.strain = strainVal;
+            } else if (selectedNodeId === "NODE_02" && node02Obj) {
+                node02Obj.status = status;
+                node02Obj.tilt = tiltVal;
+                node02Obj.vib = vibVal;
+                node02Obj.strain = strainVal;
+            }
+
+            // Sync simulation scenario across both nodes
+            if (activeSimMode === "danger") {
+                if (node01Obj) { node01Obj.status = "DANGER"; node01Obj.tilt = 5.35; node01Obj.vib = 0.95; node01Obj.strain = 16.8; }
+                if (node02Obj) { node02Obj.status = "DANGER"; node02Obj.tilt = 5.20; node02Obj.vib = 1.00; node02Obj.strain = 16.5; }
+            } else if (activeSimMode === "warning") {
+                if (node01Obj && node01Obj.status !== "DANGER") { node01Obj.status = "WARNING"; node01Obj.tilt = 2.90; node01Obj.vib = 0.48; node01Obj.strain = 9.4; }
+                if (node02Obj && node02Obj.status !== "DANGER") { node02Obj.status = "WARNING"; node02Obj.tilt = 2.80; node02Obj.vib = 0.45; node02Obj.strain = 9.2; }
+            } else if ((activeSimMode === "dynamic" || activeSimMode === "safe") && (!liveHardwareData || !liveHardwareData.connected)) {
+                if (node01Obj && selectedNodeId !== "NODE_01") { node01Obj.status = "SAFE"; node01Obj.tilt = 0.0; node01Obj.vib = 0.0; node01Obj.strain = 0.0; }
+                if (node02Obj && selectedNodeId !== "NODE_02") { node02Obj.status = "SAFE"; node02Obj.tilt = 0.0; node02Obj.vib = 0.0; node02Obj.strain = 0.0; }
+            }
+
+            const isNode1Danger = Boolean(node01Obj && node01Obj.status === "DANGER");
+            const isNode2Danger = Boolean(node02Obj && node02Obj.status === "DANGER");
+            const isBothDanger = (isNode1Danger && isNode2Danger);
+
+            const nowTs = Date.now();
+
+            if (isBothDanger) {
+                // CASE 3: BOTH NODE_01 AND NODE_02 ARE IN DANGER
+                if (lastDangerNodeState !== "BOTH" || (nowTs - lastDangerAlertTimestamp > ALERT_EMAIL_COOLDOWN_MS)) {
+                    lastDangerNodeState = "BOTH";
+                    lastDangerAlertTimestamp = nowTs;
+                    lastAlertEmailLevel = "DANGER";
+                    const maxT = Math.max(node01Obj ? node01Obj.tilt : 0, node02Obj ? node02Obj.tilt : 0);
+                    const maxV = Math.max(node01Obj ? node01Obj.vib : 0, node02Obj ? node02Obj.vib : 0);
+                    const maxS = Math.max(node01Obj ? node01Obj.strain : 0, node02Obj ? node02Obj.strain : 0);
+                    const bothMsg = "CRITICAL MULTI-ZONE DANGER ALERT: Evacuate site immediately! Both Sensor Node 1 (Deep Rock Extensometer) and Sensor Node 2 (SW-420 Tripwire Digital Latch) have breached critical hazard thresholds simultaneously!";
+                    dispatchEmergencyAlertEmail("DANGER", maxT, maxV, maxS, null, "BOTH NODE_01 & NODE_02 (Simultaneous Breach)", bothMsg);
+                }
+            } else if (isNode1Danger) {
+                // CASE 1: NODE_01 IN DANGER
+                if (lastDangerNodeState !== "NODE_01" || (nowTs - lastDangerAlertTimestamp > ALERT_EMAIL_COOLDOWN_MS)) {
+                    lastDangerNodeState = "NODE_01";
+                    lastDangerAlertTimestamp = nowTs;
+                    lastAlertEmailLevel = "DANGER";
+                    const n1Msg = "DANGER ALERT: Alert: you have to move from that current site! Immediate ground collapse risk breached on NODE_01 (Deep Rock Mass Extensometer).";
+                    dispatchEmergencyAlertEmail("DANGER", node01Obj.tilt, node01Obj.vib, node01Obj.strain, null, "NODE_01 (Deep Rock Mass Extensometer)", n1Msg);
+                }
+            } else if (isNode2Danger) {
+                // CASE 2: NODE_02 IN DANGER
+                if (lastDangerNodeState !== "NODE_02" || (nowTs - lastDangerAlertTimestamp > ALERT_EMAIL_COOLDOWN_MS)) {
+                    lastDangerNodeState = "NODE_02";
+                    lastDangerAlertTimestamp = nowTs;
+                    lastAlertEmailLevel = "DANGER";
+                    const n2Msg = "DANGER ALERT: Alert: you have to move from that current site! Perimeter tripwire hazard and high vibration triggered on NODE_02 (SW-420 Tripwire Digital Latch).";
+                    dispatchEmergencyAlertEmail("DANGER", node02Obj.tilt, node02Obj.vib, node02Obj.strain, null, "NODE_02 (SW-420 Tripwire Digital Latch)", n2Msg);
+                }
+            } else {
+                // Neither in danger: reset danger latch
+                lastDangerNodeState = null;
+
+                if (status === "WARNING") {
+                    if (lastAlertEmailLevel !== "WARNING" || (nowTs - lastAlertEmailTimestamp > ALERT_EMAIL_COOLDOWN_MS)) {
+                        lastAlertEmailTimestamp = nowTs;
+                        lastAlertEmailLevel = "WARNING";
+                        dispatchEmergencyAlertEmail("WARNING", tiltVal, vibVal, strainVal, null, selectedNodeId, "WARNING: Structural Drift Threshold Approached on " + selectedNodeId);
+                    }
+                } else if (status === "SAFE") {
+                    lastAlertEmailLevel = null;
                 }
             }
 
