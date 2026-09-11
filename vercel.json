@@ -27,6 +27,26 @@
     {
       "source": "/send_alert_email",
       "destination": "/api/index.py"
+    },
+    {
+      "source": "/api/model_info",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/model_info",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/api/hardware_telemetry",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/hardware_telemetry",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index.py"
     }
   ]
 }
