@@ -551,7 +551,34 @@ latest_hardware_telemetry = {
     "frame_id": 0,
     "timestamp": "",
     "received_at": 0.0,
-    "nodes": {}
+    "nodes": {
+        "NODE_01": {
+            "source": "IDLE",
+            "node_id": "NODE_01",
+            "filter_mode": "KALMAN FILTERED",
+            "tilt": 0.0,
+            "vibration": 0.0,
+            "displacement": 0.0,
+            "status": "SAFE",
+            "frame_id": 0,
+            "timestamp": "",
+            "received_at": 0.0,
+            "connected": False
+        },
+        "NODE_02": {
+            "source": "IDLE",
+            "node_id": "NODE_02",
+            "filter_mode": "DIGITAL OVERRIDE",
+            "tilt": 0.0,
+            "vibration": 0.0,
+            "displacement": 0.0,
+            "status": "SAFE",
+            "frame_id": 0,
+            "timestamp": "",
+            "received_at": 0.0,
+            "connected": False
+        }
+    }
 }
 
 class HardwareTelemetryPayload(BaseModel):
@@ -612,8 +639,12 @@ def get_hardware_telemetry():
     res = dict(latest_hardware_telemetry)
     res["connected"] = is_live
     if "nodes" in res and isinstance(res["nodes"], dict):
+        has_any_connected = False
         for nid, ndata in list(res["nodes"].items()):
             ndata["connected"] = (now_ts - ndata.get("received_at", 0)) < 30.0
+            if ndata["connected"]:
+                has_any_connected = True
+        res["connected"] = has_any_connected
     return res
 
 serial_worker_paused = False
@@ -1197,7 +1228,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                     <p>Real-Time IoT Telemetry & ML Risk Prediction</p>
                 </div>
                 <div style="font-size: 0.85rem; color: var(--text-muted); background: var(--bg-input); padding: 0.65rem 1.2rem; border-radius: 8px; border: 1px solid var(--border-color);" id="live-sub-info">
-                    Active Site: <strong style="color: var(--text-primary);">Gondwana Coal Fields</strong> | Connected Sensor: <strong style="color: var(--primary-accent);">NODE_01 (Deep Rock Mass Extensometer)</strong> | Power Source: <strong style="color: #10b981;"><span id="header-battery-icon"></span> <span id="header-battery">100% Battery</span></strong> | AI Model: <strong style="color: #10b981;">RandomForest (100 Trees &bull; 99.99% Acc &bull; 25M InSAR Dataset)</strong>
+                    Active Site: <strong style="color: var(--text-primary);">Gondwana Coal Fields</strong> | Connected Sensor: <strong style="color: var(--primary-accent);">NODE_01 (Deep Rock Mass Extensometer)</strong> <span id="node-online-badge" style="font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; font-weight: 700; background: rgba(148,163,184,0.2); color: #94a3b8;">OFFLINE</span> | Power Source: <strong style="color: #10b981;"><span id="header-battery-icon"></span> <span id="header-battery">100% Battery</span></strong> | AI Model: <strong style="color: #10b981;">RandomForest (100 Trees &bull; 99.99% Acc &bull; 25M InSAR Dataset)</strong>
                 </div>
             </div>
 
@@ -1484,15 +1515,15 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                     <div class="metric-header">
                         <span class="metric-title">Monitored Sensor Nodes</span>
                     </div>
-                    <div class="metric-value" id="site-metric-nodes">2 Nodes</div>
-                    <div class="metric-footer" id="site-metric-active-count">2 Active | 0 Offline</div>
+                    <div class="metric-value" id="site-metric-nodes">2 Sensor Nodes</div>
+                    <div class="metric-footer" id="site-metric-active-count"><span style="color: #94a3b8;">0 Active | 2 Offline</span></div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-header">
                         <span class="metric-title">Sector Hazard Status</span>
                     </div>
-                    <div class="metric-value" id="site-metric-status" style="color: #10b981;">SAFE</div>
-                    <div class="metric-footer" id="site-metric-status-sub">Real-Time ML Classification</div>
+                    <div class="metric-value" id="site-metric-status" style="color: #94a3b8;">OFFLINE</div>
+                    <div class="metric-footer" id="site-metric-status-sub">Awaiting Physical Node Transmitters</div>
                 </div>
             </div>
 
@@ -1732,7 +1763,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                         "name": "Deep Rock Mass Extensometer",
                         "relLat": 0.0015,
                         "relLng": 0.0008,
-                        "active": true,
+                        "active": false,
                         "type": "Deep Rock Strain",
                         "tilt": 0.0,
                         "vib": 0.0,
@@ -1745,7 +1776,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                         "name": "ESP32 Node 2 — SW-420 Tripwire Digital Latch",
                         "relLat": -0.002,
                         "relLng": 0.0015,
-                        "active": true,
+                        "active": false,
                         "type": "Discrete Tripwire Node (TDMA Slot 2)",
                         "tilt": 0.0,
                         "vib": 0.0,
@@ -2445,6 +2476,10 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             
             const manualBox = document.getElementById("manual-controls");
             if (manualBox) manualBox.style.display = (mode === "manual") ? "grid" : "none";
+            
+            if (typeof syncNodeConnectionStatus === "function") {
+                syncNodeConnectionStatus(liveHardwareData);
+            }
             if (mode === "manual") {
                 updateManualVal();
             } else {
@@ -2870,7 +2905,10 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             const subtitleEl = document.getElementById("live-sub-info");
             if (subtitleEl && node) {
                 const batInfo = getBatteryInfo(node.battery);
-                subtitleEl.innerHTML = `Active Site: <strong style="color: var(--text-primary);">${site.shortName}</strong> | Connected Sensor: <strong style="color: var(--primary-accent);">${node.id} (${node.name})</strong> | Power: <strong style="color: ${batInfo.color};">${batInfo.icon} ${node.battery}% Battery</strong> | Type: <strong style="color: var(--text-primary);">${node.type}</strong>`;
+                const connBadge = node.active
+                    ? `<span style="font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; font-weight: 700; background: rgba(16,185,129,0.2); color: #10b981;">ONLINE</span>`
+                    : `<span style="font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; font-weight: 700; background: rgba(148,163,184,0.2); color: #94a3b8;">OFFLINE</span>`;
+                subtitleEl.innerHTML = `Active Site: <strong style="color: var(--text-primary);">${site.shortName}</strong> | Connected Sensor: <strong style="color: var(--primary-accent);">${node.id} (${node.name})</strong> ${connBadge} | Power: <strong style="color: ${batInfo.color};">${batInfo.icon} ${node.battery}% Battery</strong> | Type: <strong style="color: var(--text-primary);">${node.type}</strong>`;
             }
 
             // Reset and pre-populate chart and telemetry logs for selected node
@@ -3011,6 +3049,12 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                 await fetch(apiBase.replace(/\/+$/, "") + "/api/claim_serial", { method: "POST" });
             } catch(e) {}
 
+            liveHardwareData = null;
+            if (typeof syncNodeConnectionStatus === "function") {
+                syncNodeConnectionStatus(null);
+            }
+            setHardwareBadgeInactive();
+
             const btnText = document.getElementById("btn-web-serial-text");
             if (btnText) btnText.textContent = "Connect USB Hardware";
             const btn = document.getElementById("btn-web-serial");
@@ -3060,6 +3104,36 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             if (badgeDot) {
                 badgeDot.style.background = "#10b981";
                 badgeDot.style.boxShadow = "0 0 10px #10b981";
+            }
+        }
+
+        function setHardwareBadgeInactive() {
+            const badge = document.getElementById("hw-live-badge");
+            const badgeText = document.getElementById("hw-live-text");
+            const badgeDot = document.getElementById("hw-live-dot");
+            if (badgeText) badgeText.textContent = "AWAITING PHYSICAL HARDWARE (0.000 IDLE)";
+            if (badge) {
+                badge.style.background = "rgba(148, 163, 184, 0.12)";
+                badge.style.borderColor = "rgba(148, 163, 184, 0.35)";
+                badge.style.color = "#94a3b8";
+            }
+            if (badgeDot) {
+                badgeDot.style.background = "#94a3b8";
+                badgeDot.style.boxShadow = "0 0 6px #94a3b8";
+            }
+            const hwFrame = document.getElementById("hw-frame-id");
+            if (hwFrame) hwFrame.textContent = "#0000 (0.000 Idle)";
+
+            const btnText = document.getElementById("btn-web-serial-text");
+            const btn = document.getElementById("btn-web-serial");
+            if (btnText && !isWebSerialReading) {
+                btnText.textContent = "Connect USB Hardware";
+            }
+            if (btn && !isWebSerialReading) {
+                btn.style.background = "rgba(56, 189, 248, 0.12)";
+                btn.style.borderColor = "rgba(56, 189, 248, 0.4)";
+                btn.style.color = "#38bdf8";
+                btn.title = "Click to connect USB Hardware";
             }
         }
 
@@ -3151,6 +3225,11 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                 lastLiveHardwareSync = Date.now();
                 setHardwareBadgeActive(`LIVE HARDWARE (${nodeIdStr}): Tilt: ${tiltVal >= 0 ? '+' : ''}${tiltVal.toFixed(2)}° | Vib: ${vibVal.toFixed(2)}g | Disp: ${dispVal.toFixed(1)}mm`);
 
+                // CRITICAL FIX: DYNAMICALLY SYNC INDIVIDUAL NODE CONNECTIVITY
+                if (typeof syncNodeConnectionStatus === "function") {
+                    syncNodeConnectionStatus(liveHardwareData);
+                }
+
                 // CRITICAL FIX: IMMEDIATELY PUSH PHYSICAL TELEMETRY INTO DASHBOARD UI
                 updateTelemetry();
 
@@ -3190,15 +3269,28 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                         liveHardwareData = data;
                         lastLiveHardwareSync = Date.now();
 
+                        if (typeof syncNodeConnectionStatus === "function") {
+                            syncNodeConnectionStatus(data);
+                        }
+
                         const activeNodeData = (data.nodes && data.nodes[selectedNodeId])
                             ? data.nodes[selectedNodeId]
-                            : ((data.node_id === selectedNodeId) ? data : (data.nodes ? Object.values(data.nodes)[0] : data));
+                            : ((data.node_id === selectedNodeId) ? data : null);
 
-                        const t = activeNodeData ? (activeNodeData.tilt || 0) : 0;
-                        const v = activeNodeData ? (activeNodeData.vibration || 0) : 0;
-                        const d = activeNodeData ? (activeNodeData.displacement || 0) : 0;
+                        if (activeNodeData && activeNodeData.connected !== false) {
+                            const t = activeNodeData.tilt || 0;
+                            const v = activeNodeData.vibration || 0;
+                            const d = activeNodeData.displacement || 0;
+                            setHardwareBadgeActive(`LIVE HARDWARE (${selectedNodeId}): Tilt: ${t >= 0 ? '+' : ''}${t.toFixed(2)}° | Vib: ${v.toFixed(2)}g | Disp: ${d.toFixed(1)}mm`);
+                        } else {
+                            const activeNids = Object.keys(data.nodes || {}).filter(k => data.nodes[k] && data.nodes[k].connected);
+                            if (activeNids.length > 0) {
+                                setHardwareBadgeActive(`LIVE HARDWARE: ${activeNids.join(", ")} Active | ${selectedNodeId} OFFLINE`);
+                            } else {
+                                setHardwareBadgeActive(`LIVE HARDWARE CONNECTED (Awaiting Telemetry)`);
+                            }
+                        }
 
-                        setHardwareBadgeActive(`LIVE HARDWARE (${selectedNodeId}): Tilt: ${t >= 0 ? '+' : ''}${t.toFixed(2)}° | Vib: ${v.toFixed(2)}g | Disp: ${d.toFixed(1)}mm`);
                         const hwFrame = document.getElementById("hw-frame-id");
                         if (hwFrame && data.frame_id) hwFrame.textContent = "#" + String(data.frame_id).padStart(4, "0");
 
@@ -3218,6 +3310,15 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                         // PUSH TO DASHBOARD WITH SUB-SECOND RESPONSIVENESS
                         updateTelemetry();
                         return;
+                    } else {
+                        // Backend reports no active hardware or timeout
+                        liveHardwareData = null;
+                        if (typeof syncNodeConnectionStatus === "function") {
+                            syncNodeConnectionStatus(null);
+                        }
+                        setHardwareBadgeInactive();
+                        updateTelemetry();
+                        return;
                     }
                 }
             } catch(e) {}
@@ -3225,33 +3326,10 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             // Physical Hardware Stream Inactive / Standby (30s timeout for wireless TDMA window cycles)
             if (!isWebSerialReading && Date.now() - lastLiveHardwareSync > 30000) {
                 liveHardwareData = null;
-                const badge = document.getElementById("hw-live-badge");
-                const badgeText = document.getElementById("hw-live-text");
-                const badgeDot = document.getElementById("hw-live-dot");
-                if (badgeText) badgeText.textContent = "AWAITING PHYSICAL HARDWARE (0.000 IDLE)";
-                if (badge) {
-                    badge.style.background = "rgba(148, 163, 184, 0.12)";
-                    badge.style.borderColor = "rgba(148, 163, 184, 0.35)";
-                    badge.style.color = "#94a3b8";
+                if (typeof syncNodeConnectionStatus === "function") {
+                    syncNodeConnectionStatus(null);
                 }
-                if (badgeDot) {
-                    badgeDot.style.background = "#94a3b8";
-                    badgeDot.style.boxShadow = "0 0 6px #94a3b8";
-                }
-                const hwFrame = document.getElementById("hw-frame-id");
-                if (hwFrame) hwFrame.textContent = "#0000 (0.000 Idle)";
-
-                const btnText = document.getElementById("btn-web-serial-text");
-                const btn = document.getElementById("btn-web-serial");
-                if (btnText && !isWebSerialReading) {
-                    btnText.textContent = "Connect USB Hardware";
-                }
-                if (btn && !isWebSerialReading) {
-                    btn.style.background = "rgba(56, 189, 248, 0.12)";
-                    btn.style.borderColor = "rgba(56, 189, 248, 0.4)";
-                    btn.style.color = "#38bdf8";
-                    btn.title = "Click to connect USB Hardware";
-                }
+                setHardwareBadgeInactive();
             }
         }
 
@@ -3270,9 +3348,9 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             if (liveHardwareData && liveHardwareData.connected) {
                 const activeNodeData = (liveHardwareData.nodes && liveHardwareData.nodes[selectedNodeId])
                     ? liveHardwareData.nodes[selectedNodeId]
-                    : (liveHardwareData.node_id === selectedNodeId ? liveHardwareData : (liveHardwareData.nodes ? Object.values(liveHardwareData.nodes)[0] : null));
+                    : ((liveHardwareData.node_id === selectedNodeId) ? liveHardwareData : null);
 
-                if (activeNodeData) {
+                if (activeNodeData && activeNodeData.connected !== false) {
                     if (hwFrame) hwFrame.textContent = "#" + String(activeNodeData.frame_id || (tdmaVirtualFrameId % 9999)).padStart(4, "0");
                     const realTilt = parseFloat((activeNodeData.tilt || 0).toFixed(3));
                     const realVib = parseFloat((activeNodeData.vibration || 0).toFixed(3));
@@ -3570,9 +3648,9 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                         </div>
 
                         <div style="background: rgba(255,255,255,0.05); padding: 0.5rem; border-radius: 6px; font-size: 0.78rem; display: flex; flex-direction: column; gap: 0.35rem;">
-                            <div>Tilt: <strong style="color: #38bdf8;">0.0 deg/m</strong></div>
-                            <div>Vibration: <strong style="color: #f59e0b;">0.0 g</strong></div>
-                            <div>Displacement: <strong style="color: #ef4444;">0.0 mm</strong></div>
+                            <div>Tilt: <strong style="color: #38bdf8;">${(node.tilt !== undefined ? node.tilt : 0).toFixed(2)} deg</strong></div>
+                            <div>Vibration: <strong style="color: #f59e0b;">${(node.vib !== undefined ? node.vib : 0).toFixed(2)} g</strong></div>
+                            <div>Displacement: <strong style="color: #ef4444;">${(node.strain !== undefined ? node.strain : 0).toFixed(1)} mm</strong></div>
                         </div>
 
                         <div style="margin-top: 0.6rem; text-align: center;">
@@ -3587,21 +3665,163 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                 nodeMarkersMap[node.id] = marker;
             });
 
-            document.getElementById("site-metric-nodes").textContent = `${site.nodes.length} Sensor Nodes`;
-            document.getElementById("site-metric-active-count").textContent = `${activeCount} Active | ${offlineCount} Offline`;
+            const totalNodesEl = document.getElementById("site-metric-nodes");
+            if (totalNodesEl) totalNodesEl.textContent = `${site.nodes.length} Sensor Nodes`;
+
+            const activeCountEl = document.getElementById("site-metric-active-count");
+            if (activeCountEl) {
+                if (activeCount === 0) {
+                    activeCountEl.innerHTML = `<span style="color: #94a3b8;">0 Active | ${offlineCount} Offline</span>`;
+                } else if (activeCount === site.nodes.length) {
+                    activeCountEl.innerHTML = `<span style="color: #10b981; font-weight: 700;">${activeCount} Active</span> | <span style="color: #94a3b8;">0 Offline</span>`;
+                } else {
+                    activeCountEl.innerHTML = `<span style="color: #38bdf8; font-weight: 700;">${activeCount} Active</span> | <span style="color: #94a3b8;">${offlineCount} Offline</span>`;
+                }
+            }
             
             const statusValEl = document.getElementById("site-metric-status");
             const statusIconEl = document.getElementById("site-metric-status-icon");
-            statusValEl.textContent = maxRisk;
-            if (maxRisk === "DANGER") {
-                statusValEl.style.color = "#ef4444";
-                statusIconEl.textContent = "";
-            } else if (maxRisk === "WARNING") {
-                statusValEl.style.color = "#f59e0b";
-                statusIconEl.textContent = "";
-            } else {
-                statusValEl.style.color = "#10b981";
-                statusIconEl.textContent = "";
+            const statusSubEl = document.getElementById("site-metric-status-sub");
+            if (statusValEl) {
+                if (activeCount === 0) {
+                    statusValEl.textContent = "OFFLINE";
+                    statusValEl.style.color = "#94a3b8";
+                    if (statusSubEl) statusSubEl.textContent = "Awaiting Physical Node Transmitters";
+                } else {
+                    statusValEl.textContent = maxRisk;
+                    if (maxRisk === "DANGER") {
+                        statusValEl.style.color = "#ef4444";
+                    } else if (maxRisk === "WARNING") {
+                        statusValEl.style.color = "#f59e0b";
+                    } else {
+                        statusValEl.style.color = "#10b981";
+                    }
+                    if (statusSubEl) statusSubEl.textContent = "Real-Time ML Classification";
+                }
+                if (statusIconEl) statusIconEl.textContent = "";
+            }
+        }
+
+        // Dedicated Node Connectivity Synchronization Function
+        function syncNodeConnectionStatus(telemetryData) {
+            const now = Date.now();
+            const site = MINING_SITES[currentSiteKey] || MINING_SITES["site-1"];
+            if (!site || !site.nodes) return;
+
+            let activeCount = 0;
+            let offlineCount = 0;
+            let maxRisk = "SAFE";
+
+            site.nodes.forEach(node => {
+                let isConnected = false;
+                let nodeTelemetry = null;
+
+                // 1. Check local Web Serial node data
+                if (liveHardwareData && liveHardwareData.nodes && liveHardwareData.nodes[node.id]) {
+                    const wNode = liveHardwareData.nodes[node.id];
+                    if (wNode.connected !== false && (now - (wNode.received_at || 0) < 30000)) {
+                        isConnected = true;
+                        nodeTelemetry = wNode;
+                    }
+                }
+
+                // 2. Check polled telemetryData (from /api/hardware_telemetry)
+                if (!isConnected && telemetryData) {
+                    if (telemetryData.nodes && telemetryData.nodes[node.id]) {
+                        const sNode = telemetryData.nodes[node.id];
+                        const recAt = sNode.received_at ? (sNode.received_at > 1e11 ? sNode.received_at : sNode.received_at * 1000) : 0;
+                        if (sNode.connected === true || (recAt && (now - recAt < 30000))) {
+                            isConnected = true;
+                            nodeTelemetry = sNode;
+                        }
+                    } else if (telemetryData.connected && telemetryData.node_id === node.id) {
+                        isConnected = true;
+                        nodeTelemetry = telemetryData;
+                    }
+                }
+
+                // 3. Fallback to global liveHardwareData
+                if (!isConnected && liveHardwareData && liveHardwareData.connected) {
+                    if (liveHardwareData.nodes && liveHardwareData.nodes[node.id] && liveHardwareData.nodes[node.id].connected !== false) {
+                        const glNode = liveHardwareData.nodes[node.id];
+                        const recAt = glNode.received_at ? (glNode.received_at > 1e11 ? glNode.received_at : glNode.received_at * 1000) : 0;
+                        if (glNode.connected === true || (recAt && (now - recAt < 30000))) {
+                            isConnected = true;
+                            nodeTelemetry = glNode;
+                        }
+                    } else if (liveHardwareData.node_id === node.id && (now - lastLiveHardwareSync < 30000)) {
+                        isConnected = true;
+                        nodeTelemetry = liveHardwareData;
+                    }
+                }
+
+                // 4. Active simulation modes (danger / warning)
+                if (activeSimMode === "danger" || activeSimMode === "warning") {
+                    isConnected = true;
+                }
+
+                node.active = isConnected;
+
+                if (isConnected) {
+                    activeCount++;
+                    if (nodeTelemetry) {
+                        if (nodeTelemetry.status) node.status = nodeTelemetry.status;
+                        if (nodeTelemetry.tilt !== undefined) node.tilt = nodeTelemetry.tilt;
+                        if (nodeTelemetry.vibration !== undefined) node.vib = nodeTelemetry.vibration;
+                        if (nodeTelemetry.displacement !== undefined) node.strain = nodeTelemetry.displacement;
+                    }
+                    if (node.status === "DANGER") maxRisk = "DANGER";
+                    else if (node.status === "WARNING" && maxRisk !== "DANGER") maxRisk = "WARNING";
+                } else {
+                    offlineCount++;
+                    if (activeSimMode === "dynamic" || activeSimMode === "safe") {
+                        node.status = "SAFE";
+                        node.tilt = 0.0;
+                        node.vib = 0.0;
+                        node.strain = 0.0;
+                    }
+                }
+            });
+
+            // Update UI Counters
+            const totalNodesEl = document.getElementById("site-metric-nodes");
+            if (totalNodesEl) totalNodesEl.textContent = `${site.nodes.length} Sensor Nodes`;
+
+            const activeCountEl = document.getElementById("site-metric-active-count");
+            if (activeCountEl) {
+                if (activeCount === 0) {
+                    activeCountEl.innerHTML = `<span style="color: #94a3b8;">0 Active | ${offlineCount} Offline</span>`;
+                } else if (activeCount === site.nodes.length) {
+                    activeCountEl.innerHTML = `<span style="color: #10b981; font-weight: 700;">${activeCount} Active</span> | <span style="color: #94a3b8;">0 Offline</span>`;
+                } else {
+                    activeCountEl.innerHTML = `<span style="color: #38bdf8; font-weight: 700;">${activeCount} Active</span> | <span style="color: #94a3b8;">${offlineCount} Offline</span>`;
+                }
+            }
+
+            const statusValEl = document.getElementById("site-metric-status");
+            const statusIconEl = document.getElementById("site-metric-status-icon");
+            const statusSubEl = document.getElementById("site-metric-status-sub");
+            if (statusValEl) {
+                if (activeCount === 0) {
+                    statusValEl.textContent = "OFFLINE";
+                    statusValEl.style.color = "#94a3b8";
+                    if (statusSubEl) statusSubEl.textContent = "Awaiting Physical Node Transmitters";
+                } else {
+                    statusValEl.textContent = maxRisk;
+                    if (maxRisk === "DANGER") statusValEl.style.color = "#ef4444";
+                    else if (maxRisk === "WARNING") statusValEl.style.color = "#f59e0b";
+                    else statusValEl.style.color = "#10b981";
+                    if (statusSubEl) statusSubEl.textContent = "Real-Time ML Classification";
+                }
+                if (statusIconEl) statusIconEl.textContent = "";
+            }
+
+            // Sync Dropdown options
+            populateLiveNodeDropdown();
+
+            // Refresh Map markers if leafletMap is initialized
+            if (leafletMap) {
+                renderSiteNodesOnMap();
             }
         }
 
@@ -3633,6 +3853,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                 setTimeout(() => {
                     initMiningMap();
                     if (leafletMap) leafletMap.invalidateSize();
+                    syncNodeConnectionStatus(liveHardwareData);
                 }, 100);
             } else if (page === 'admin') {
                 document.getElementById("nav-btn-admin").classList.add("active");
@@ -4225,6 +4446,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
         populateLiveNodeDropdown();
         initChartDataForNode(selectedNodeId);
         renderTelemetryLogTable();
+        syncNodeConnectionStatus(null);
         checkAuth();
         setInterval(updateTelemetry, 2000);
     </script>
