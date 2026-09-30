@@ -17,6 +17,7 @@ try:
 except Exception:
     joblib = None
 
+from typing import Optional, Union, List, Dict, Any
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
@@ -57,8 +58,8 @@ for env_name in [".env.local", ".env"]:
         except Exception:
             pass
 
-SUPABASE_URL = "https://toabcprwbtaipxwzmdyl.supabase.co"
-SUPABASE_KEY = "sb_publishable_DS2T92fPyhKkhGyI41dtzA_qw2_m_3C"
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://toabcprwbtaipxwzmdyl.supabase.co")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "sb_publishable_DS2T92fPyhKkhGyI41dtzA_qw2_m_3C")
 
 def log_to_supabase_async(payload_dict):
     """Sends telemetry log packet to Supabase Cloud Database."""
@@ -87,9 +88,10 @@ class RuleBasedHazardPredictor:
         res = []
         for feat in features:
             tilt, vib, strain = feat[0], feat[1], feat[2]
-            if tilt >= 4.0 or vib >= 1.5 or strain >= 2.0:
+            abs_t = abs(tilt)
+            if strain > 80.0 or abs_t > 3.80 or vib > 0.260:
                 res.append("DANGER")
-            elif tilt >= 0.4 or vib >= 0.35 or strain >= 0.4:
+            elif strain > 40.0 or abs_t > 2.00 or vib > 0.200:
                 res.append("WARNING")
             else:
                 res.append("SAFE")
@@ -112,9 +114,18 @@ def get_model():
         import numpy as np
         from sklearn.tree import DecisionTreeClassifier
         X = np.array([
-            [0.01, 0.05, 0.01], [0.05, 0.15, 0.03], [0.20, 0.35, 0.10],
-            [1.50, 0.65, 0.80], [2.50, 0.85, 1.20], [3.20, 1.10, 1.80],
-            [5.50, 1.80, 3.20], [8.00, 2.50, 4.50], [12.0, 4.00, 6.00],
+            # SAFE (Tilt: -2 to 2, Vib: 0 to 0.20, Disp: 0 to 40mm)
+            [ 0.00, 0.05, 10.0],
+            [ 1.50, 0.12, 35.0],
+            [-1.80, 0.18, 25.0],
+            # WARNING (Tilt: 2.01-3.8 / -3.8--2.01, Vib: 0.201-0.260, Disp: 41-80mm)
+            [ 2.80, 0.10, 20.0],
+            [-3.20, 0.15, 30.0],
+            [ 0.50, 0.23, 65.0],
+            # DANGER (Tilt: >3.8 / <-3.8, Vib: >0.26, Disp: >80mm)
+            [ 4.50, 0.10, 20.0],
+            [-4.50, 0.10, 20.0],
+            [ 0.50, 0.35, 95.0],
         ])
         y = np.array(["SAFE", "SAFE", "SAFE", "WARNING", "WARNING", "WARNING", "DANGER", "DANGER", "DANGER"])
         clf = DecisionTreeClassifier(random_state=42)
@@ -128,25 +139,36 @@ def get_model():
         return model
 
 class FilteredDataPayload(BaseModel):
-    node_id: str
-    filtered_tilt: float
-    filtered_vibration: float
-    filtered_strain: float
+    node_id: Optional[str] = "NODE_01"
+    filtered_tilt: Optional[float] = None
+    filtered_vibration: Optional[float] = None
+    filtered_strain: Optional[float] = None
+    tilt: Optional[float] = None
+    vibration: Optional[float] = None
+    displacement: Optional[float] = None
+    strain: Optional[float] = None
     battery: float = 94.0
+
+FilteredDataPayload.model_rebuild()
 
 @app.post("/predict")
 @app.post("/api/telemetry")
 def predict_risk(data: FilteredDataPayload):
+    node_id_val = data.node_id or "NODE_01"
+    t = data.filtered_tilt if data.filtered_tilt is not None else (data.tilt if data.tilt is not None else 0.0)
+    v = data.filtered_vibration if data.filtered_vibration is not None else (data.vibration if data.vibration is not None else 0.0)
+    s = data.filtered_strain if data.filtered_strain is not None else (data.displacement if data.displacement is not None else (data.strain if data.strain is not None else 0.0))
+
     try:
         clf = get_model()
         try:
             import pandas as pd
             features = pd.DataFrame(
-                [[data.filtered_tilt, data.filtered_vibration, data.filtered_strain]],
+                [[t, v, s]],
                 columns=["filtered_tilt", "filtered_vibration", "filtered_strain"]
             )
         except Exception:
-            features = [[data.filtered_tilt, data.filtered_vibration, data.filtered_strain]]
+            features = [[t, v, s]]
             
         prediction = clf.predict(features)[0]
         if isinstance(prediction, (str, bytes)):
@@ -160,10 +182,10 @@ def predict_risk(data: FilteredDataPayload):
                 status_str = str(prediction).strip().upper()
 
     except Exception as e:
-        tilt, vib, strain = data.filtered_tilt, data.filtered_vibration, data.filtered_strain
-        if tilt >= 4.0 or vib >= 1.5 or strain >= 2.0:
+        abs_t = abs(t)
+        if abs_t > 3.80 or v >= 0.261 or s >= 81.0:
             status_str = "DANGER"
-        elif tilt >= 0.4 or vib >= 0.35 or strain >= 0.4:
+        elif abs_t >= 2.01 or v >= 0.201 or s >= 41.0:
             status_str = "WARNING"
         else:
             status_str = "SAFE"
@@ -176,10 +198,10 @@ def predict_risk(data: FilteredDataPayload):
     risk_level = risk_level_map.get(status_str, "Low Risk")
 
     log_to_supabase_async({
-        "node_id": data.node_id,
-        "filtered_tilt": data.filtered_tilt,
-        "filtered_vibration": data.filtered_vibration,
-        "filtered_strain": data.filtered_strain,
+        "node_id": node_id_val,
+        "filtered_tilt": t,
+        "filtered_vibration": v,
+        "filtered_strain": s,
         "battery": data.battery,
         "status": status_str,
         "timestamp": time.strftime("%H:%M:%S")
@@ -187,7 +209,8 @@ def predict_risk(data: FilteredDataPayload):
 
     return {
         "status": status_str,
-        "node_id": data.node_id,
+        "prediction": status_str,
+        "node_id": node_id_val,
         "risk_level": risk_level,
         "result": "success"
     }
@@ -196,12 +219,16 @@ class AlertEmailPayload(BaseModel):
     recipient_email: str
     recipient_name: str = "Mine Personnel"
     alert_level: str = "DANGER"
-    site_name: str = "Kolar Gold Fields"
+    site_name: str = "Gondwana Coal Fields"
     node_id: str = "NODE_01"
     message: str = "Alert: you have to move from that current site"
     tilt: float = 0.0
     vibration: float = 0.0
     strain: float = 0.0
+
+AlertEmailPayload.model_rebuild()
+
+last_dispatched_alerts = {}
 
 @app.post("/api/send_alert_email")
 @app.post("/send_alert_email")
@@ -220,6 +247,17 @@ def send_alert_email(payload: AlertEmailPayload):
     site = payload.site_name or "Active Mine Site"
     node = payload.node_id or "NODE_01"
     msg_text = payload.message or "Alert: you have to move from that current site"
+
+    now_ts = time.time()
+    # Preemption Safeguard: If a DANGER email was dispatched for this node within the last 15 seconds,
+    # reject/suppress any concurrent or trailing WARNING alert for this node.
+    if level == "WARNING":
+        last_danger_time = last_dispatched_alerts.get((node, "DANGER"), 0)
+        if (now_ts - last_danger_time) < 15.0:
+            print(f"[ALERT SUPPRESSED] Dropped concurrent WARNING email for {node} because DANGER alert was triggered {now_ts - last_danger_time:.1f}s ago.")
+            return {"status": "suppressed", "delivered": False, "reason": "Preempted by DANGER priority", "detail": "Active DANGER alert in progress"}
+
+    last_dispatched_alerts[(node, level)] = now_ts
 
     smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
@@ -721,6 +759,8 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
     <link rel="shortcut icon" href="data:image/png;base64,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">
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -1005,6 +1045,11 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
         .btn-page-link { background: rgba(56, 189, 248, 0.1); border: 1px solid var(--border-accent); color: var(--primary-accent); padding: 0.75rem 1.2rem; border-radius: 10px; font-weight: 700; font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; justify-content: space-between; width: 100%; transition: all 0.2s; text-decoration: none; }
         .btn-page-link:hover { background: var(--primary-accent); color: #ffffff; }
 
+        .chart-controls-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: space-between; margin-bottom: 8px; padding: 6px 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; }
+        .chart-btn { padding: 0.3rem 0.65rem; border-radius: 6px; font-size: 0.74rem; font-weight: 600; cursor: pointer; background: rgba(255, 255, 255, 0.05); color: var(--text-muted); border: 1px solid rgba(255, 255, 255, 0.12); transition: all 0.15s ease; font-family: 'Inter', sans-serif; display: inline-flex; align-items: center; gap: 4px; }
+        .chart-btn:hover { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border-color: rgba(56, 189, 248, 0.4); }
+        .chart-btn.active { background: var(--primary-accent); color: #ffffff; border-color: var(--primary-accent); font-weight: 700; }
+
         .analytics-grid { display: grid; grid-template-columns: 1fr 2fr; gap: 1.5rem; }
         @media (max-width: 1100px) { .analytics-grid { grid-template-columns: 1fr; } }
 
@@ -1122,10 +1167,10 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             <div class="hero-banner">
                 <div class="hero-title">
                     <h1>Mine Hazard & Subsidence Early Warning System</h1>
-                    <p>Smart India Hackathon (SIH) Project 26025 — Real-Time IoT Telemetry & ML Risk Prediction</p>
+                    <p>Real-Time IoT Telemetry & ML Risk Prediction</p>
                 </div>
                 <div style="font-size: 0.85rem; color: var(--text-muted); background: var(--bg-input); padding: 0.65rem 1.2rem; border-radius: 8px; border: 1px solid var(--border-color);" id="live-sub-info">
-                    Active Site: <strong style="color: var(--text-primary);">Kolar Gold Fields</strong> | Connected Sensor: <strong style="color: var(--primary-accent);">NODE_01 (Deep Rock Mass Extensometer)</strong> | Power Source: <strong style="color: #10b981;"><span id="header-battery-icon"></span> <span id="header-battery">100% Battery</span></strong> | AI Model: <strong style="color: #10b981;">RandomForest (100 Trees &bull; 99.99% Acc &bull; 25M InSAR Dataset)</strong>
+                    Active Site: <strong style="color: var(--text-primary);">Gondwana Coal Fields</strong> | Connected Sensor: <strong style="color: var(--primary-accent);">NODE_01 (Deep Rock Mass Extensometer)</strong> | Power Source: <strong style="color: #10b981;"><span id="header-battery-icon"></span> <span id="header-battery">100% Battery</span></strong> | AI Model: <strong style="color: #10b981;">RandomForest (100 Trees &bull; 99.99% Acc &bull; 25M InSAR Dataset)</strong>
                 </div>
             </div>
 
@@ -1166,7 +1211,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                     <div class="control-item">
                         <label>Select Mining Site</label>
                         <select id="live-site-selector" onchange="onLiveSiteChange()" style="font-weight: 700;">
-                            <option value="site-1">Kolar Gold Fields — Strata Slope Zone</option>
+                            <option value="site-1">Gondwana Coal Fields — Strata Slope Zone</option>
                         </select>
                     </div>
                     <div class="control-item">
@@ -1198,16 +1243,16 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             <!-- MANUAL SLIDERS CONTAINER (Visible only in Manual mode) -->
             <div id="manual-controls">
                 <div class="slider-group">
-                    <label>Tilt Angle (MPU6050): <span id="val-manual-tilt">0.00</span> deg (Threshold: &ge; 5.0&deg;)</label>
-                    <input type="range" id="slider-tilt" min="0" max="15" step="0.05" value="0.0" oninput="updateManualVal()">
+                    <label>Tilt Angle (DFR0028): <span id="val-manual-tilt">0.00</span> deg (Threshold: &gt; 3.8&deg; / &lt; -3.8&deg;)</label>
+                    <input type="range" id="slider-tilt" min="-10" max="10" step="0.1" value="0.0" oninput="updateManualVal()">
                 </div>
                 <div class="slider-group">
-                    <label>Vibration Accel (MPU6050): <span id="val-manual-vib">0.00</span> g (Threshold: &ge; 0.8g)</label>
-                    <input type="range" id="slider-vib" min="0" max="3" step="0.01" value="0.0" oninput="updateManualVal()">
+                    <label>Vibration Accel (DFR0027): <span id="val-manual-vib">0.00</span> (Threshold: &ge; 0.261)</label>
+                    <input type="range" id="slider-vib" min="0" max="1.0" step="0.01" value="0.0" oninput="updateManualVal()">
                 </div>
                 <div class="slider-group">
-                    <label>Roof Displacement (HC-SR04): <span id="val-manual-strain">0.0</span> mm (Threshold: &ge; 15.0mm)</label>
-                    <input type="range" id="slider-strain" min="0" max="30" step="0.1" value="0.0" oninput="updateManualVal()">
+                    <label>Roof Displacement (HC-SR04): <span id="val-manual-strain">0.0</span> mm (Threshold: &ge; 81.0mm)</label>
+                    <input type="range" id="slider-strain" min="0" max="150" step="0.5" value="0.0" oninput="updateManualVal()">
                 </div>
             </div>
 
@@ -1248,7 +1293,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                         <span class="metric-title">Risk Alerts & Trips</span>
                     </div>
                     <div class="metric-value" id="val-alerts">0 / 0</div>
-                    <div class="metric-footer">Threshold Breaches (&ge;5&deg; / &ge;0.8g / &ge;15mm)</div>
+                    <div class="metric-footer">Threshold Breaches (&gt;3.8&deg; / &gt;0.26 / &ge;81mm)</div>
                 </div>
             </div>
 
@@ -1257,6 +1302,22 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                 <div class="panel-header">
                     <div class="panel-title"> <span>Real-Time Sensor Telemetry Trends</span></div>
                     <span style="font-size: 0.78rem; color: var(--text-muted);">Last 15 Observations (Live Stream)</span>
+                </div>
+                <div class="chart-controls-toolbar">
+                    <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+                        <span style="font-size: 0.74rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">Zoom:</span>
+                        <button type="button" class="chart-btn" onclick="zoomTrendChart(1.3, 'xy')" title="Zoom in both horizontally & vertically">🔍+ In</button>
+                        <button type="button" class="chart-btn" onclick="zoomTrendChart(0.75, 'xy')" title="Zoom out both axes">🔍- Out</button>
+                        <button type="button" class="chart-btn" onclick="zoomTrendChart(1.4, 'y')" title="Vertical Zoom (magnify lower Tilt & Vibration curves)">↕ Vertical Zoom</button>
+                        <button type="button" class="chart-btn" onclick="zoomTrendChart(1.4, 'x')" title="Horizontal Zoom (stretch time observations)">↔ Horizontal Zoom</button>
+                        <button type="button" class="chart-btn" onclick="resetTrendChartZoom()" title="Reset chart view to 100%">↺ Reset Zoom</button>
+                    </div>
+                    <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+                        <span style="font-size: 0.74rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">Channels:</span>
+                        <button type="button" class="chart-btn active" id="btn-focus-all" onclick="setChartFocus('all')">All</button>
+                        <button type="button" class="chart-btn" id="btn-focus-tiltvib" onclick="setChartFocus('tiltvib')" style="color: #38bdf8;" title="Isolate Tilt & Vibration to see small values clearly">Tilt & Vib Only</button>
+                        <button type="button" class="chart-btn" id="btn-focus-strain" onclick="setChartFocus('strain')" style="color: #ef4444;" title="Isolate Displacement">Displacement Only</button>
+                    </div>
                 </div>
                 <div style="position: relative; height: 380px; width: 100%;">
                     <canvas id="trendChart"></canvas>
@@ -1376,7 +1437,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                 <div style="display: flex; align-items: center; gap: 1rem;">
                     <label style="font-weight: 700; color: var(--text-primary);"> Select Mining Site:</label>
                     <select id="site-select" class="site-selector" onchange="changeMiningSite(this.value)">
-                        <option value="site-1">Kolar Gold Fields — Strata Slope Zone</option>
+                        <option value="site-1">Gondwana Coal Fields — Strata Slope Zone</option>
                     </select>
                 </div>
 
@@ -1395,8 +1456,8 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                     <div class="metric-header">
                         <span class="metric-title">Sector Name</span>
                     </div>
-                    <div class="metric-value" id="site-metric-name" style="font-size: 1.1rem; font-weight: 700; color: var(--primary-accent);">Kolar Gold Fields</div>
-                    <div class="metric-footer" id="site-metric-coords">Lat: 12.9583° N, Lon: 78.2711° E</div>
+                    <div class="metric-value" id="site-metric-name" style="font-size: 1.1rem; font-weight: 700; color: var(--primary-accent);">Gondwana Coal Fields</div>
+                    <div class="metric-footer" id="site-metric-coords">Lat: 23.7500° N, Lon: 86.4300° E</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-header">
@@ -1607,22 +1668,17 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
         </div>
     </main>
 
-    <!-- FOOTER -->
-    <footer>
-        <div>© 2026 <strong>Igniters AI</strong> — SIH Project 26025. All Rights Reserved.</div>
-        <div>Engineered for Deep Tech Mine Safety & Digital Transformation</div>
-    </footer>
 
     <script>
         // Interactive Mining Sites & IoT Sensor Nodes Map System
                 const MINING_SITES = {
             "site-1": {
-                "name": "Kolar Gold Fields — Strata Slope Zone",
-                "shortName": "Kolar Gold Fields",
-                "lat": 12.9583,
-                "lng": 78.2711,
+                "name": "Gondwana Coal Fields — Strata Slope Zone",
+                "shortName": "Gondwana Coal Fields",
+                "lat": 23.7500,
+                "lng": 86.4300,
                 "zoom": 15,
-                "coordsText": "Lat: 12.9583° N, Lon: 78.2711° E",
+                "coordsText": "Lat: 23.7500° N, Lon: 86.4300° E",
                 "zones": [
                     {
                         "name": "East Pit Green Zone",
@@ -1697,11 +1753,23 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             const legendColor = isLight ? "#0f172a" : "#f8fafc";
 
             if (window.trendChart) {
-                trendChart.options.scales.x.ticks.color = textColor;
-                trendChart.options.scales.x.grid.color = gridColor;
-                trendChart.options.scales.y.ticks.color = textColor;
-                trendChart.options.scales.y.grid.color = gridColor;
-                trendChart.options.plugins.legend.labels.color = legendColor;
+                if (trendChart.options.scales.x) {
+                    trendChart.options.scales.x.ticks.color = textColor;
+                    trendChart.options.scales.x.grid.color = gridColor;
+                }
+                if (trendChart.options.scales.yTiltVib) {
+                    trendChart.options.scales.yTiltVib.grid.color = gridColor;
+                }
+                if (trendChart.options.scales.yStrain) {
+                    trendChart.options.scales.yStrain.grid.color = gridColor;
+                }
+                if (trendChart.options.scales.y) {
+                    trendChart.options.scales.y.ticks.color = textColor;
+                    trendChart.options.scales.y.grid.color = gridColor;
+                }
+                if (trendChart.options.plugins && trendChart.options.plugins.legend) {
+                    trendChart.options.plugins.legend.labels.color = legendColor;
+                }
                 trendChart.update();
             }
 
@@ -1912,8 +1980,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             syncSessionToSupabase(newSession);
         }
 
-        let currentUser = null;
-        try { localStorage.removeItem("mine_current_user"); } catch(e) {}
+        let currentUser = localStorage.getItem("mine_current_user") || "Admin";
         let activeSimMode = "dynamic";
 
         function checkAuth() {
@@ -2342,16 +2409,20 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
         function setSimMode(mode) {
             activeSimMode = mode;
             document.querySelectorAll(".mode-pill").forEach(p => p.classList.remove("active"));
-            event.target.classList.add("active");
+            if (window.event && window.event.target) window.event.target.classList.add("active");
             
             const manualBox = document.getElementById("manual-controls");
-            manualBox.style.display = (mode === "manual") ? "grid" : "none";
-            updateTelemetry();
+            if (manualBox) manualBox.style.display = (mode === "manual") ? "grid" : "none";
+            if (mode === "manual") {
+                updateManualVal();
+            } else {
+                updateTelemetry();
+            }
         }
 
         function updateManualVal() {
             const t = parseFloat(document.getElementById("slider-tilt").value || 0).toFixed(1);
-            const v = parseFloat(document.getElementById("slider-vib").value || 0).toFixed(1);
+            const v = parseFloat(document.getElementById("slider-vib").value || 0).toFixed(3);
             const s = parseFloat(document.getElementById("slider-strain").value || 0).toFixed(1);
             const elMT = document.getElementById("val-manual-tilt");
             if (elMT) elMT.textContent = t;
@@ -2377,19 +2448,101 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             data: {
                 labels: [],
                 datasets: [
-                    { label: 'Tilt (deg/m)', data: [], borderColor: '#38bdf8', backgroundColor: 'rgba(56, 189, 248, 0.1)', tension: 0.35, fill: true },
-                    { label: 'Vibration (g)', data: [], borderColor: '#f59e0b', backgroundColor: 'rgba(245, 158, 11, 0.1)', tension: 0.35, fill: true },
-                    { label: 'Strain (mm/m)', data: [], borderColor: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.1)', tension: 0.35, fill: true }
+                    {
+                        label: 'Tilt (deg/m)',
+                        data: [],
+                        borderColor: '#38bdf8',
+                        backgroundColor: 'rgba(56, 189, 248, 0.1)',
+                        tension: 0.35,
+                        fill: false,
+                        yAxisID: 'yTiltVib'
+                    },
+                    {
+                        label: 'Vibration (g)',
+                        data: [],
+                        borderColor: '#f59e0b',
+                        backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                        tension: 0.35,
+                        fill: false,
+                        yAxisID: 'yTiltVib'
+                    },
+                    {
+                        label: 'Displacement (mm)',
+                        data: [],
+                        borderColor: '#ef4444',
+                        backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                        tension: 0.35,
+                        fill: true,
+                        yAxisID: 'yStrain'
+                    }
                 ]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                scales: {
-                    x: { ticks: { color: initialTextColor }, grid: { color: initialGridColor } },
-                    y: { min: 0, suggestedMax: 2, ticks: { color: initialTextColor }, grid: { color: initialGridColor } }
+                interaction: {
+                    mode: 'index',
+                    intersect: false
                 },
-                plugins: { legend: { labels: { color: initialIsLight ? '#0f172a' : '#f8fafc', font: { family: 'Inter', weight: '600' } } } }
+                scales: {
+                    x: {
+                        ticks: { color: initialTextColor },
+                        grid: { color: initialGridColor }
+                    },
+                    yTiltVib: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        title: {
+                            display: true,
+                            text: 'Tilt (°) / Vibration (g)',
+                            color: '#38bdf8',
+                            font: { family: 'Inter', size: 11, weight: '600' }
+                        },
+                        ticks: { color: '#38bdf8' },
+                        grid: { color: initialGridColor },
+                        min: 0,
+                        suggestedMax: 3
+                    },
+                    yStrain: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        title: {
+                            display: true,
+                            text: 'Displacement (mm)',
+                            color: '#ef4444',
+                            font: { family: 'Inter', size: 11, weight: '600' }
+                        },
+                        ticks: { color: '#ef4444' },
+                        grid: { drawOnChartArea: false },
+                        min: 0,
+                        suggestedMax: 40
+                    }
+                },
+                plugins: {
+                    zoom: {
+                        pan: {
+                            enabled: true,
+                            mode: 'xy'
+                        },
+                        zoom: {
+                            wheel: {
+                                enabled: true
+                            },
+                            pinch: {
+                                enabled: true
+                            },
+                            mode: 'xy'
+                        }
+                    },
+                    legend: {
+                        labels: {
+                            color: initialIsLight ? '#0f172a' : '#f8fafc',
+                            font: { family: 'Inter', weight: '600' }
+                        }
+                    }
+                }
             }
         });
 
@@ -2431,6 +2584,98 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                 trendChart.data.datasets[2].data = strainData;
                 trendChart.update('none');
             }
+        }
+
+        function zoomTrendChart(factor, mode = 'xy') {
+            if (!window.trendChart) return;
+            let zoomedViaPlugin = false;
+            if (typeof trendChart.zoomScale === 'function') {
+                try {
+                    if (mode === 'y' || mode === 'xy') {
+                        trendChart.zoomScale('yTiltVib', factor);
+                        trendChart.zoomScale('yStrain', factor);
+                    }
+                    if (mode === 'x' || mode === 'xy') {
+                        trendChart.zoomScale('x', factor);
+                    }
+                    zoomedViaPlugin = true;
+                } catch(e) {}
+            } else if (typeof trendChart.zoom === 'function') {
+                try {
+                    if (mode === 'y') {
+                        trendChart.zoom({ yTiltVib: factor, yStrain: factor });
+                    } else if (mode === 'x') {
+                        trendChart.zoom({ x: factor });
+                    } else {
+                        trendChart.zoom(factor);
+                    }
+                    zoomedViaPlugin = true;
+                } catch(e) {}
+            }
+            if (mode === 'y' || mode === 'xy' || !zoomedViaPlugin) {
+                if (trendChart.options.scales.yTiltVib) {
+                    const cur = trendChart.options.scales.yTiltVib.suggestedMax || 3;
+                    trendChart.options.scales.yTiltVib.suggestedMax = Math.max(0.4, cur / factor);
+                }
+                if (trendChart.options.scales.yStrain) {
+                    const cur = trendChart.options.scales.yStrain.suggestedMax || 40;
+                    trendChart.options.scales.yStrain.suggestedMax = Math.max(5, cur / factor);
+                }
+                trendChart.update();
+            }
+        }
+
+        function resetTrendChartZoom() {
+            if (!window.trendChart) return;
+            if (typeof trendChart.resetZoom === 'function') {
+                trendChart.resetZoom();
+            }
+            if (trendChart.options.scales.yTiltVib) {
+                trendChart.options.scales.yTiltVib.min = 0;
+                trendChart.options.scales.yTiltVib.suggestedMax = 3;
+                delete trendChart.options.scales.yTiltVib.max;
+            }
+            if (trendChart.options.scales.yStrain) {
+                trendChart.options.scales.yStrain.min = 0;
+                trendChart.options.scales.yStrain.suggestedMax = 40;
+                delete trendChart.options.scales.yStrain.max;
+            }
+            trendChart.update();
+        }
+
+        function setChartFocus(focusMode) {
+            if (!window.trendChart) return;
+            ['all', 'tiltvib', 'strain'].forEach(m => {
+                const b = document.getElementById("btn-focus-" + m);
+                if (b) b.classList.toggle("active", m === focusMode);
+            });
+
+            if (focusMode === 'tiltvib') {
+                trendChart.data.datasets[0].hidden = false;
+                trendChart.data.datasets[1].hidden = false;
+                trendChart.data.datasets[2].hidden = true;
+                if (trendChart.options.scales.yStrain) trendChart.options.scales.yStrain.display = false;
+                if (trendChart.options.scales.yTiltVib) {
+                    trendChart.options.scales.yTiltVib.display = true;
+                    trendChart.options.scales.yTiltVib.suggestedMax = 2.5;
+                }
+            } else if (focusMode === 'strain') {
+                trendChart.data.datasets[0].hidden = true;
+                trendChart.data.datasets[1].hidden = true;
+                trendChart.data.datasets[2].hidden = false;
+                if (trendChart.options.scales.yStrain) trendChart.options.scales.yStrain.display = true;
+                if (trendChart.options.scales.yTiltVib) trendChart.options.scales.yTiltVib.display = false;
+            } else {
+                trendChart.data.datasets[0].hidden = false;
+                trendChart.data.datasets[1].hidden = false;
+                trendChart.data.datasets[2].hidden = false;
+                if (trendChart.options.scales.yStrain) trendChart.options.scales.yStrain.display = true;
+                if (trendChart.options.scales.yTiltVib) {
+                    trendChart.options.scales.yTiltVib.display = true;
+                    trendChart.options.scales.yTiltVib.suggestedMax = 3;
+                }
+            }
+            trendChart.update();
         }
 
         // Telemetry Data Logic
@@ -2646,10 +2891,14 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
         const kfVibNode1 = new DiscreteKalmanFilter1D(0.05, 2.0);
         const kfDispNode1 = new DiscreteKalmanFilter1D(0.01, 0.8);
 
-        // Hardware safety thresholds strictly matching central_hub_esp32s3_5.ino
-        const CRITICAL_DISPLACEMENT_THRESH_MM = 15.0; // Critical rock mass displacement (mm)
-        const CRITICAL_TILT_THRESH_DEG = 5.0;         // Critical angular tilt (degrees)
-        const CRITICAL_VIBRATION_THRESH_G = 0.8;      // Critical vibration trigger (g)
+        // Hardware safety thresholds calibrated for HC-SR04, DFR0028 Tilt, and DFR0027 Vibration
+        const CRITICAL_DISPLACEMENT_THRESH_MM = 81.0; // Critical rock mass displacement (mm) (>= 81mm)
+        const CRITICAL_TILT_THRESH_DEG = 3.801;       // Critical angular tilt (degrees) (> 3.8deg / < -3.8deg)
+        const CRITICAL_VIBRATION_THRESH_G = 0.261;    // Critical vibration trigger (>= 0.261)
+
+        const WARNING_DISPLACEMENT_THRESH_MM = 41.0;  // Warning displacement (mm) (41 to 80mm)
+        const WARNING_TILT_THRESH_DEG = 2.01;         // Warning tilt (degrees) (2.01 to 3.8deg / -2.01 to -3.8deg)
+        const WARNING_VIBRATION_THRESH_G = 0.201;     // Warning vibration (0.201 to 0.260)
 
         let tdmaVirtualFrameId = 0;
         let lastLiveHardwareSync = 0;
@@ -2665,8 +2914,22 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                 await disconnectWebSerial();
                 return;
             }
+
+            // If the server daemon is already streaming this USB hardware
+            if (liveHardwareData && liveHardwareData.connected && !isWebSerialReading) {
+                const switchChoice = confirm("Physical ESP32 hardware is ALREADY CONNECTED and streaming live telemetry (Tilt, Vibration, Displacement) directly to this dashboard via the server background reader!\n\n• Click 'OK' if you wish to pause the server reader and take over with Direct Browser Web Serial.\n• Click 'Cancel' to keep using the stable server stream.");
+                if (!switchChoice) return;
+
+                // Request server to release COM port
+                try {
+                    const apiBase = window.API_BASE_URL || (window.location.protocol === 'file:' ? 'http://127.0.0.1:8000' : (window.location.port !== '8000' ? 'http://127.0.0.1:8000' : ''));
+                    await fetch(apiBase.replace(/\/+$/, "") + "/api/release_serial", { method: "POST" });
+                    await new Promise(r => setTimeout(r, 600)); // wait for COM release
+                } catch(e) {}
+            }
+
             if (!('serial' in navigator)) {
-                alert("Web Serial API is natively supported in Google Chrome, Microsoft Edge, and Opera.\n\nTip: You can also run 'python serial_bridge.py' in the terminal to bridge USB hardware automatically!");
+                alert("Web Serial API is natively supported in Google Chrome, Microsoft Edge, and Opera.\n\nNote: The server background daemon automatically reads and streams your USB hardware on startup!");
                 return;
             }
             try {
@@ -2675,7 +2938,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                 isWebSerialReading = true;
 
                 const btnText = document.getElementById("btn-web-serial-text");
-                if (btnText) btnText.textContent = "Disconnect USB";
+                if (btnText) btnText.textContent = "Disconnect Browser USB";
                 const btn = document.getElementById("btn-web-serial");
                 if (btn) {
                     btn.style.background = "rgba(239, 68, 68, 0.15)";
@@ -2687,6 +2950,15 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                 readWebSerialLoop();
             } catch (err) {
                 console.warn("Serial connection canceled or failed:", err);
+                // Re-claim server if user cancelled or it failed
+                try {
+                    const apiBase = window.API_BASE_URL || (window.location.protocol === 'file:' ? 'http://127.0.0.1:8000' : (window.location.port !== '8000' ? 'http://127.0.0.1:8000' : ''));
+                    await fetch(apiBase.replace(/\/+$/, "") + "/api/claim_serial", { method: "POST" });
+                } catch(e) {}
+
+                if (err.name !== "NotFoundError") {
+                    alert("Could not open serial port: " + (err.message || err) + "\n\nNote: If another program (like Arduino IDE Serial Monitor or terminal) is using this COM port, close it. The Python backend is also auto-polling your hardware directly!");
+                }
             }
         }
 
@@ -2700,6 +2972,13 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                 webSerialPort = null;
             }
             webSerialReader = null;
+
+            // Re-claim serial port for backend server daemon
+            try {
+                const apiBase = window.API_BASE_URL || (window.location.protocol === 'file:' ? 'http://127.0.0.1:8000' : (window.location.port !== '8000' ? 'http://127.0.0.1:8000' : ''));
+                await fetch(apiBase.replace(/\/+$/, "") + "/api/claim_serial", { method: "POST" });
+            } catch(e) {}
+
             const btnText = document.getElementById("btn-web-serial-text");
             if (btnText) btnText.textContent = "Connect USB Hardware";
             const btn = document.getElementById("btn-web-serial");
@@ -2825,7 +3104,8 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             if (isWebSerialReading) return; // Web Serial handles active stream
 
             try {
-                const targetEndpoint = (window.API_BASE_URL || "").replace(/\/+$/, "") + "/api/hardware_telemetry";
+                const apiBase = window.API_BASE_URL || (window.location.protocol === 'file:' ? 'http://127.0.0.1:8000' : (window.location.port !== '8000' ? 'http://127.0.0.1:8000' : ''));
+                const targetEndpoint = apiBase.replace(/\/+$/, "") + "/api/hardware_telemetry";
                 const res = await fetch(targetEndpoint, { method: "GET" });
                 if (res.ok) {
                     const data = await res.json();
@@ -2845,6 +3125,19 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                         const hwFrame = document.getElementById("hw-frame-id");
                         if (hwFrame && data.frame_id) hwFrame.textContent = "#" + String(data.frame_id).padStart(4, "0");
 
+                        // Update the USB button to indicate server is actively streaming
+                        const btnText = document.getElementById("btn-web-serial-text");
+                        const btn = document.getElementById("btn-web-serial");
+                        if (btnText && !isWebSerialReading) {
+                            btnText.textContent = "USB Connected (Server Live)";
+                        }
+                        if (btn && !isWebSerialReading) {
+                            btn.style.background = "rgba(16, 185, 129, 0.18)";
+                            btn.style.borderColor = "rgba(16, 185, 129, 0.5)";
+                            btn.style.color = "#10b981";
+                            btn.title = "Physical ESP32 hardware is actively streaming via the server background daemon.";
+                        }
+
                         // PUSH TO DASHBOARD WITH SUB-SECOND RESPONSIVENESS
                         updateTelemetry();
                         return;
@@ -2852,8 +3145,8 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                 }
             } catch(e) {}
 
-            // Physical Hardware Stream Inactive / Standby
-            if (!isWebSerialReading && Date.now() - lastLiveHardwareSync > 4000) {
+            // Physical Hardware Stream Inactive / Standby (30s timeout for wireless TDMA window cycles)
+            if (!isWebSerialReading && Date.now() - lastLiveHardwareSync > 30000) {
                 liveHardwareData = null;
                 const badge = document.getElementById("hw-live-badge");
                 const badgeText = document.getElementById("hw-live-text");
@@ -2870,6 +3163,18 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                 }
                 const hwFrame = document.getElementById("hw-frame-id");
                 if (hwFrame) hwFrame.textContent = "#0000 (0.000 Idle)";
+
+                const btnText = document.getElementById("btn-web-serial-text");
+                const btn = document.getElementById("btn-web-serial");
+                if (btnText && !isWebSerialReading) {
+                    btnText.textContent = "Connect USB Hardware";
+                }
+                if (btn && !isWebSerialReading) {
+                    btn.style.background = "rgba(56, 189, 248, 0.12)";
+                    btn.style.borderColor = "rgba(56, 189, 248, 0.4)";
+                    btn.style.color = "#38bdf8";
+                    btn.title = "Click to connect USB Hardware";
+                }
             }
         }
 
@@ -2918,19 +3223,23 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
 
             if (selectedNodeId === "NODE_02") {
                 if (activeSimMode === "danger") {
-                    rawVib = 1.000;
-                    rawTilt = 5.200;
-                    rawDisp = 16.500;
+                    rawTilt = -4.200;
+                    rawVib = 0.350;
+                    rawDisp = 92.000;
                 } else if (activeSimMode === "warning") {
-                    rawVib = 0.450;
-                    rawTilt = 2.800;
-                    rawDisp = 9.200;
+                    rawTilt = -2.500;
+                    rawVib = 0.240;
+                    rawDisp = 50.000;
+                } else if (activeSimMode === "safe") {
+                    rawTilt = 0.000;
+                    rawVib = 0.000;
+                    rawDisp = 0.000;
                 } else if (activeSimMode === "manual") {
                     rawTilt = parseFloat(document.getElementById("slider-tilt").value || 0);
                     rawVib = parseFloat(document.getElementById("slider-vib").value || 0);
                     rawDisp = parseFloat(document.getElementById("slider-strain").value || 0);
                 } else {
-                    // Dynamic / Safe mode: STRICTLY 0.000! No garbage noise!
+                    // Dynamic / Standby: STRICTLY 0.000! No garbage noise!
                     rawVib = 0.000;
                     rawTilt = 0.000;
                     rawDisp = 0.000;
@@ -2955,15 +3264,19 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                 rawVib = parseFloat(document.getElementById("slider-vib").value || 0);
                 rawDisp = parseFloat(document.getElementById("slider-strain").value || 0);
             } else if (activeSimMode === "danger") {
-                rawTilt = 5.350;
-                rawVib = 0.950;
-                rawDisp = 16.800;
+                rawTilt = 4.500;
+                rawVib = 0.350;
+                rawDisp = 88.000;
             } else if (activeSimMode === "warning") {
-                rawTilt = 2.900;
-                rawVib = 0.480;
-                rawDisp = 9.400;
+                rawTilt = 2.800;
+                rawVib = 0.230;
+                rawDisp = 55.000;
+            } else if (activeSimMode === "safe") {
+                rawTilt = 0.000;
+                rawVib = 0.000;
+                rawDisp = 0.000;
             } else {
-                // Dynamic & Safe mode: STRICTLY 0.000 until physical hardware connects! No garbage values!
+                // Dynamic & Standby mode: STRICTLY 0.000 until physical hardware connects! No garbage values!
                 rawTilt = 0.000;
                 rawVib = 0.000;
                 rawDisp = 0.000;
@@ -2973,12 +3286,22 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             let filtVib = 0.000;
             let filtDisp = 0.000;
 
-            if (activeSimMode === "manual" || activeSimMode === "danger" || activeSimMode === "warning") {
-                filtTilt = parseFloat(kfTiltNode1.update(rawTilt).toFixed(3));
-                filtVib = parseFloat(kfVibNode1.update(rawVib).toFixed(3));
-                filtDisp = parseFloat(kfDispNode1.update(rawDisp).toFixed(3));
+            if (activeSimMode === "manual" || activeSimMode === "warning" || activeSimMode === "danger" || activeSimMode === "safe") {
+                // In manual slider and scenario presets, output calibrated values directly without Kalman lag
+                filtTilt = rawTilt;
+                filtVib = rawVib;
+                filtDisp = rawDisp;
+                kfTiltNode1.x = rawTilt;
+                kfTiltNode1.p = 1.0;
+                kfTiltNode1.initialized = true;
+                kfVibNode1.x = rawVib;
+                kfVibNode1.p = 1.0;
+                kfVibNode1.initialized = true;
+                kfDispNode1.x = rawDisp;
+                kfDispNode1.p = 1.0;
+                kfDispNode1.initialized = true;
             } else {
-                // Dynamic tab: Reset filter states and strictly return 0.000
+                // Dynamic & Standby tabs: Reset filter states and strictly return 0.000
                 kfTiltNode1.x = 0.0;
                 kfVibNode1.x = 0.0;
                 kfDispNode1.x = 0.0;
@@ -3249,6 +3572,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
         let lastAlertEmailLevel = null;
         let lastDangerNodeState = null; // 'NODE_01', 'NODE_02', 'BOTH', or null
         let lastDangerAlertTimestamp = 0;
+        let warningAlertTimer = null;
         const ALERT_EMAIL_COOLDOWN_MS = 60 * 1000; // 60 seconds cooldown for identical node alert state
 
         // Helper to collect all registered users' emails for emergency broadcast
@@ -3372,7 +3696,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                 }
 
                 const currentSite = MINING_SITES[selectedSiteKey] || MINING_SITES["site-1"];
-                const siteName = currentSite.name || "Kolar Gold Fields";
+                const siteName = currentSite.name || "Gondwana Coal Fields";
                 const targetNode = customNodeId || selectedNodeId || "NODE_01";
                 const targetMsg = customMessage || "Alert: you have to move from that current site";
 
@@ -3449,7 +3773,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                     recipient_email: email,
                     recipient_name: "Safety Personnel",
                     alert_level: level,
-                    site_name: "Kolar Gold Fields",
+                    site_name: "Gondwana Coal Fields",
                     node_id: selectedNodeId || "NODE_01",
                     message: "Alert: you have to move from that current site",
                     tilt: level === "DANGER" ? 5.24 : 0.65,
@@ -3489,7 +3813,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
         }
 
         function updateTelemetry() {
-            if (document.getElementById("stream-toggle").value === "off" || !currentUser) return;
+            if (document.getElementById("stream-toggle") && document.getElementById("stream-toggle").value === "off") return;
 
             const payload = getSimulatedPayload();
             const currentBat = payload.battery !== undefined ? payload.battery : 100;
@@ -3500,15 +3824,15 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             const vibVal = parseFloat(payload.filtered_vibration || 0);
             const strainVal = parseFloat(payload.filtered_strain || 0);
 
-            // Critical thresholds: Disp >= 15mm, Tilt >= 5deg, Vib >= 0.8g
+            // Critical thresholds: Disp >= 81mm, |Tilt| >= 3.801deg, Vib >= 0.261
             const isCriticalBreached = (strainVal >= CRITICAL_DISPLACEMENT_THRESH_MM) ||
                                        (Math.abs(tiltVal) >= CRITICAL_TILT_THRESH_DEG) ||
                                        (vibVal >= CRITICAL_VIBRATION_THRESH_G);
 
-            // Warning thresholds: Disp >= 8mm, Tilt >= 2.5deg, Vib >= 0.4g
-            const isWarningApproached = (strainVal >= 8.0) ||
-                                        (Math.abs(tiltVal) >= 2.5) ||
-                                        (vibVal >= 0.4);
+            // Warning thresholds: Disp >= 41mm, |Tilt| >= 2.01deg, Vib >= 0.201
+            const isWarningApproached = (strainVal >= WARNING_DISPLACEMENT_THRESH_MM) ||
+                                        (Math.abs(tiltVal) >= WARNING_TILT_THRESH_DEG) ||
+                                        (vibVal >= WARNING_VIBRATION_THRESH_G);
 
             if (isCriticalBreached) {
                 status = "DANGER";
@@ -3539,11 +3863,14 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
 
             // Sync simulation scenario across both nodes
             if (activeSimMode === "danger") {
-                if (node01Obj) { node01Obj.status = "DANGER"; node01Obj.tilt = 5.35; node01Obj.vib = 0.95; node01Obj.strain = 16.8; }
-                if (node02Obj) { node02Obj.status = "DANGER"; node02Obj.tilt = 5.20; node02Obj.vib = 1.00; node02Obj.strain = 16.5; }
+                if (node01Obj) { node01Obj.status = "DANGER"; node01Obj.tilt = 4.50; node01Obj.vib = 0.35; node01Obj.strain = 88.0; }
+                if (node02Obj) { node02Obj.status = "DANGER"; node02Obj.tilt = -4.20; node02Obj.vib = 0.40; node02Obj.strain = 92.0; }
             } else if (activeSimMode === "warning") {
-                if (node01Obj && node01Obj.status !== "DANGER") { node01Obj.status = "WARNING"; node01Obj.tilt = 2.90; node01Obj.vib = 0.48; node01Obj.strain = 9.4; }
-                if (node02Obj && node02Obj.status !== "DANGER") { node02Obj.status = "WARNING"; node02Obj.tilt = 2.80; node02Obj.vib = 0.45; node02Obj.strain = 9.2; }
+                if (node01Obj) { node01Obj.status = "WARNING"; node01Obj.tilt = 2.80; node01Obj.vib = 0.22; node01Obj.strain = 55.0; }
+                if (node02Obj) { node02Obj.status = "WARNING"; node02Obj.tilt = -2.50; node02Obj.vib = 0.24; node02Obj.strain = 50.0; }
+            } else if (activeSimMode === "safe") {
+                if (node01Obj) { node01Obj.status = "SAFE"; node01Obj.tilt = 0.0; node01Obj.vib = 0.0; node01Obj.strain = 0.0; }
+                if (node02Obj) { node02Obj.status = "SAFE"; node02Obj.tilt = 0.0; node02Obj.vib = 0.0; node02Obj.strain = 0.0; }
             } else if ((activeSimMode === "dynamic" || activeSimMode === "safe") && (!liveHardwareData || !liveHardwareData.connected)) {
                 if (node01Obj && selectedNodeId !== "NODE_01") { node01Obj.status = "SAFE"; node01Obj.tilt = 0.0; node01Obj.vib = 0.0; node01Obj.strain = 0.0; }
                 if (node02Obj && selectedNodeId !== "NODE_02") { node02Obj.status = "SAFE"; node02Obj.tilt = 0.0; node02Obj.vib = 0.0; node02Obj.strain = 0.0; }
@@ -3554,6 +3881,13 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             const isBothDanger = (isNode1Danger && isNode2Danger);
 
             const nowTs = Date.now();
+
+            if (isBothDanger || isNode1Danger || isNode2Danger || status === "DANGER") {
+                if (warningAlertTimer) {
+                    clearTimeout(warningAlertTimer);
+                    warningAlertTimer = null;
+                }
+            }
 
             if (isBothDanger) {
                 // CASE 3: BOTH NODE_01 AND NODE_02 ARE IN DANGER
@@ -3590,12 +3924,22 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                 lastDangerNodeState = null;
 
                 if (status === "WARNING") {
-                    if (lastAlertEmailLevel !== "WARNING" || (nowTs - lastAlertEmailTimestamp > ALERT_EMAIL_COOLDOWN_MS)) {
-                        lastAlertEmailTimestamp = nowTs;
-                        lastAlertEmailLevel = "WARNING";
-                        dispatchEmergencyAlertEmail("WARNING", tiltVal, vibVal, strainVal, null, selectedNodeId, "WARNING: Structural Drift Threshold Approached on " + selectedNodeId);
+                    if (!warningAlertTimer && (lastAlertEmailLevel !== "WARNING" || (nowTs - lastAlertEmailTimestamp > ALERT_EMAIL_COOLDOWN_MS))) {
+                        warningAlertTimer = setTimeout(() => {
+                            warningAlertTimer = null;
+                            const curNow = Date.now();
+                            if (status === "WARNING" && !isNode1Danger && !isNode2Danger && !isBothDanger) {
+                                lastAlertEmailTimestamp = curNow;
+                                lastAlertEmailLevel = "WARNING";
+                                dispatchEmergencyAlertEmail("WARNING", tiltVal, vibVal, strainVal, null, selectedNodeId, "WARNING: Structural Drift Threshold Approached on " + selectedNodeId);
+                            }
+                        }, 800);
                     }
                 } else if (status === "SAFE") {
+                    if (warningAlertTimer) {
+                        clearTimeout(warningAlertTimer);
+                        warningAlertTimer = null;
+                    }
                     lastAlertEmailLevel = null;
                 }
             }
@@ -3610,20 +3954,24 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             const isHwLive = liveHardwareData && liveHardwareData.connected;
             const isSimZero = (!isHwLive && (activeSimMode === "dynamic" || activeSimMode === "safe"));
 
-            if (elTilt) elTilt.textContent = isSimZero ? "0.000" : tiltVal.toFixed(3);
-            if (elVib) elVib.textContent = isSimZero ? "0.000" : vibVal.toFixed(3);
-            if (elStrain) elStrain.textContent = isSimZero ? "0.000" : strainVal.toFixed(3);
+            const displayTilt = isSimZero ? 0.0 : tiltVal;
+            const displayVib = isSimZero ? 0.0 : vibVal;
+            const displayStrain = isSimZero ? 0.0 : strainVal;
+
+            if (elTilt) elTilt.textContent = displayTilt.toFixed(3);
+            if (elVib) elVib.textContent = displayVib.toFixed(3);
+            if (elStrain) elStrain.textContent = displayStrain.toFixed(3);
 
             const rawT = (payload.raw_tilt !== undefined) ? payload.raw_tilt : tiltVal;
             const rawV = (payload.raw_vib !== undefined) ? payload.raw_vib : vibVal;
             const rawS = (payload.raw_strain !== undefined) ? payload.raw_strain : strainVal;
 
             const subT = document.getElementById("sub-tilt");
-            if (subT) subT.textContent = isHwLive ? `Raw: ${rawT.toFixed(3)}° • Real Hardware` : (isSimZero ? `Raw: 0.000° • Standby (0.000)` : `Raw: ${rawT.toFixed(2)}° • Filtered`);
+            if (subT) subT.textContent = isHwLive ? `Raw: ${rawT.toFixed(3)}° • Real Hardware` : (activeSimMode === "manual" ? `Raw: ${rawT.toFixed(2)}° • Manual Input` : (isSimZero ? `Raw: 0.000° • Standby (0.000)` : `Raw: ${rawT.toFixed(2)}° • Filtered`));
             const subV = document.getElementById("sub-vib");
-            if (subV) subV.textContent = isHwLive ? `Raw: ${rawV.toFixed(3)}g • Real Hardware` : (isSimZero ? `Raw: 0.000g • Standby (0.000)` : `Raw: ${rawV.toFixed(2)}g • Dynamic`);
+            if (subV) subV.textContent = isHwLive ? `Raw: ${rawV.toFixed(3)}g • Real Hardware` : (activeSimMode === "manual" ? `Raw: ${rawV.toFixed(3)}g • Manual Input` : (isSimZero ? `Raw: 0.000g • Standby (0.000)` : `Raw: ${rawV.toFixed(2)}g • Dynamic`));
             const subS = document.getElementById("sub-strain");
-            if (subS) subS.textContent = isHwLive ? `Raw: ${rawS.toFixed(3)}mm • Real Hardware` : (isSimZero ? `Raw: 0.000mm • Standby (0.000)` : `Raw: ${rawS.toFixed(1)}mm • Subsidence`);
+            if (subS) subS.textContent = isHwLive ? `Raw: ${rawS.toFixed(3)}mm • Real Hardware` : (activeSimMode === "manual" ? `Raw: ${rawS.toFixed(1)}mm • Manual Input` : (isSimZero ? `Raw: 0.000mm • Standby (0.000)` : `Raw: ${rawS.toFixed(1)}mm • Subsidence`));
             document.getElementById("last-updated").textContent = "Last Sync: " + timeStr;
 
             if (status === "SAFE") safeCount++;
@@ -3667,15 +4015,15 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                     trendChart.data.datasets[2].data.shift();
                 }
                 trendChart.data.labels.push(timeStr);
-                trendChart.data.datasets[0].data.push(parseFloat(payload.filtered_tilt || 0));
-                trendChart.data.datasets[1].data.push(parseFloat(payload.filtered_vibration || 0));
-                trendChart.data.datasets[2].data.push(parseFloat(payload.filtered_strain || 0));
+                trendChart.data.datasets[0].data.push(displayTilt);
+                trendChart.data.datasets[1].data.push(displayVib);
+                trendChart.data.datasets[2].data.push(displayStrain);
                 trendChart.update();
             }
 
             // Log Table Update for current active node
             const activeBuf = getNodeHistoryBuffer(selectedNodeId);
-            activeBuf.unshift({ time: timeStr, node_id: selectedNodeId, tilt: payload.filtered_tilt, vib: payload.filtered_vibration, strain: payload.filtered_strain, battery: currentBat, status: status });
+            activeBuf.unshift({ time: timeStr, node_id: selectedNodeId, tilt: displayTilt, vib: displayVib, strain: displayStrain, battery: currentBat, status: status });
             if (activeBuf.length > 20) activeBuf.pop();
             renderTelemetryLogTable();
 
@@ -3683,9 +4031,9 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             const activeSiteObj = MINING_SITES[selectedSiteKey] || MINING_SITES["site-1"];
             const activeNodeObj = (activeSiteObj && activeSiteObj.nodes) ? activeSiteObj.nodes.find(n => n.id === selectedNodeId) : null;
             if (activeNodeObj) {
-                activeNodeObj.tilt = payload.filtered_tilt;
-                activeNodeObj.vib = payload.filtered_vibration;
-                activeNodeObj.strain = payload.filtered_strain;
+                activeNodeObj.tilt = displayTilt;
+                activeNodeObj.vib = displayVib;
+                activeNodeObj.strain = displayStrain;
                 activeNodeObj.status = status;
 
                 // Sync subtitle power info to guarantee 100% consistency across top bar, dropdown, and logs

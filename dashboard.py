@@ -182,9 +182,9 @@ sim_mode = st.sidebar.selectbox(
 )
 
 if sim_mode == "Manual Input":
-    manual_tilt = st.sidebar.slider("Filtered Tilt (deg/m)", 0.0, 15.0, 0.0, step=0.01)
-    manual_vib = st.sidebar.slider("Filtered Vibration (g)", 0.0, 6.0, 0.0, step=0.01)
-    manual_strain = st.sidebar.slider("Filtered Displacement (mm)", 0.0, 8.0, 0.0, step=0.01)
+    manual_tilt = st.sidebar.slider("Filtered Tilt (deg)", -10.0, 10.0, 0.0, step=0.1)
+    manual_vib = st.sidebar.slider("Filtered Vibration", 0.0, 1.0, 0.0, step=0.01)
+    manual_strain = st.sidebar.slider("Filtered Displacement (mm)", 0.0, 150.0, 0.0, step=0.5)
     auto_stream = False
     send_manual = st.sidebar.button("Send Telemetry Reading")
 else:
@@ -198,33 +198,33 @@ if st.sidebar.button("Clear Log History"):
 
 def get_telemetry_payload(mode):
     if mode == "Normal (Safe)":
-        tilt = 0.0
-        vib = 0.0
-        strain = 0.0
+        tilt = round(random.uniform(-1.50, 1.50), 2)
+        vib = round(random.uniform(0.01, 0.18), 3)
+        strain = round(random.uniform(5.0, 35.0), 1)
     elif mode == "Drift (Warning)":
-        tilt = round(random.uniform(0.50, 3.50), 4)
-        vib = round(random.uniform(0.35, 1.20), 4)
-        strain = round(random.uniform(0.40, 1.80), 4)
+        tilt = round(random.choice([-1, 1]) * random.uniform(2.10, 3.70), 2)
+        vib = round(random.uniform(0.205, 0.255), 3)
+        strain = round(random.uniform(45.0, 75.0), 1)
     elif mode == "Hazard (Danger)":
-        tilt = round(random.uniform(4.00, 12.00), 4)
-        vib = round(random.uniform(1.50, 5.00), 4)
-        strain = round(random.uniform(2.00, 7.00), 4)
+        tilt = round(random.choice([-1, 1]) * random.uniform(4.00, 8.00), 2)
+        vib = round(random.uniform(0.270, 0.850), 3)
+        strain = round(random.uniform(85.0, 130.0), 1)
     elif mode == "Manual Input":
         tilt, vib, strain = manual_tilt, manual_vib, manual_strain
     else: # Dynamic
         chance = random.random()
-        if chance < 0.75:
-            tilt = round(random.uniform(0.001, 0.30), 4)
-            vib = round(random.uniform(0.01, 0.30), 4)
-            strain = round(random.uniform(0.001, 0.20), 4)
-        elif chance < 0.90:
-            tilt = round(random.uniform(0.50, 3.50), 4)
-            vib = round(random.uniform(0.35, 1.20), 4)
-            strain = round(random.uniform(0.40, 1.80), 4)
+        if chance < 0.70:
+            tilt = round(random.uniform(-1.50, 1.50), 2)
+            vib = round(random.uniform(0.01, 0.18), 3)
+            strain = round(random.uniform(5.0, 35.0), 1)
+        elif chance < 0.88:
+            tilt = round(random.choice([-1, 1]) * random.uniform(2.10, 3.70), 2)
+            vib = round(random.uniform(0.205, 0.255), 3)
+            strain = round(random.uniform(45.0, 75.0), 1)
         else:
-            tilt = round(random.uniform(4.00, 12.00), 4)
-            vib = round(random.uniform(1.50, 5.00), 4)
-            strain = round(random.uniform(2.00, 7.00), 4)
+            tilt = round(random.choice([-1, 1]) * random.uniform(4.00, 8.00), 2)
+            vib = round(random.uniform(0.270, 0.850), 3)
+            strain = round(random.uniform(85.0, 130.0), 1)
 
     return {
         "node_id": "NODE_01",
@@ -358,19 +358,19 @@ elif page_view == "🗺️ Sites":
     site_choice = st.selectbox(
         "📍 Select Mining Site",
         [
-            "Kolar Strata Slope Zone — Pit 2"
+            "Gondwana Coal Fields — Strata Slope Zone"
         ]
     )
 
     sites_data = {
-        "Kolar Strata Slope Zone — Pit 2": {"lat": 12.9583, "lon": 78.2711}
+        "Gondwana Coal Fields — Strata Slope Zone": {"lat": 23.7500, "lon": 86.4300}
     }
 
     selected_site = sites_data[site_choice]
 
     col_m1, col_m2, col_m3 = st.columns(3)
     with col_m1:
-        st.metric("Sector Name", "Kolar Strata Slope Zone")
+        st.metric("Sector Name", "Gondwana Coal Fields")
     with col_m2:
         st.metric("Monitored Sensor Nodes", "2 Nodes", "🟢 2 Active | ⚪ 0 Offline")
     with col_m3:

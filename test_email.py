@@ -33,7 +33,7 @@ def send_test(recipient_email, alert_level="DANGER"):
         smtp_pass = input("Enter 16-letter Gmail App Password: ").strip()
     smtp_pass = smtp_pass.replace(" ", "").strip()
     smtp_user = os.getenv("SMTP_USER", "miningwithigniters@gmail.com")
-    subject = f"[{alert_level} MINE HAZARD ALERT] Evacuate Immediately — Kolar Gold Fields"
+    subject = f"[{alert_level} MINE HAZARD ALERT] Evacuate Immediately — Gondwana Coal Fields"
     msg_text = "Alert: you have to move from that current site"
 
     print(f"\n=======================================================")
@@ -49,9 +49,9 @@ def send_test(recipient_email, alert_level="DANGER"):
 {msg_text}
 
 Status Level  : {alert_level}
-Mine Location : Kolar Gold Fields
+Mine Location : Gondwana Coal Fields
 Sensor Node   : NODE_01
-Telemetry     : Tilt: 5.25 deg/m | Vibration: 2.10 g | Strain: 3.40 mm
+Telemetry     : Tilt: 4.50 deg | Vibration: 0.35 | Displacement: 88.00 mm
 Timestamp     : {time.strftime('%Y-%m-%d %H:%M:%S')}
 
 INSTRUCTION:
@@ -85,7 +85,7 @@ Enterprise Mine Subsidence Monitoring System &bull; Igniters AI
           </tr>
           <tr style="border-bottom: 1px solid #334155;">
             <td style="color: #94a3b8;"><strong>Mine Site:</strong></td>
-            <td style="color: #ffffff; font-weight: bold;">Kolar Gold Fields</td>
+            <td style="color: #ffffff; font-weight: bold;">Gondwana Coal Fields</td>
           </tr>
           <tr style="border-bottom: 1px solid #334155;">
             <td style="color: #94a3b8;"><strong>Sensor Node:</strong></td>
@@ -93,7 +93,7 @@ Enterprise Mine Subsidence Monitoring System &bull; Igniters AI
           </tr>
           <tr style="border-bottom: 1px solid #334155;">
             <td style="color: #94a3b8;"><strong>Telemetry:</strong></td>
-            <td style="color: #cbd5e1;">Tilt: <strong>5.25</strong> deg/m | Vibration: <strong>2.10</strong> g | Strain: <strong>3.40</strong> mm</td>
+            <td style="color: #cbd5e1;">Tilt: <strong>4.50</strong> deg | Vibration: <strong>0.35</strong> | Displacement: <strong>88.00</strong> mm</td>
           </tr>
           <tr>
             <td style="color: #94a3b8;"><strong>Timestamp:</strong></td>

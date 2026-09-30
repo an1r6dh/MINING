@@ -32,15 +32,46 @@ except ImportError:
 
 def parse_telemetry_line(raw_line):
     """
-    Universal parser for all 3 ESP32 firmware output formats:
-    1. Central Hub: [NODE 1 KALMAN FILTERED] Tilt: +00.00 deg | Vib: 00.00 g | Disp: 000.0 mm
-    2. Central Hub: [NODE 2 DIGITAL OVERRIDE] Tilt: +00.00 deg | Vib: 00.00 g | Disp: 000.0 mm
-    3. Node 1 Direct: [NODE 1 TX SLOT 1] Sent Instant (<1ms): Tilt=+00.00 deg | Vib=00.00 g | Disp=000.0 mm
-    4. Node 2 Direct: [NODE 2 TX SLOT 2] Digital Telemetry: Tilt=00.0 deg (NORMAL) | Vib=00.0 (NORMAL) | Disp=0.0mm
+    Universal parser for all ESP32 firmware output formats:
+    1. Central Hub JSON: {"node_id":"NODE_SECTOR_01","filtered_tilt":2.45,"filtered_vibration":0.12,"filtered_displacement":35.20}
+    2. Central Hub Plain: [NODE 1 KALMAN FILTERED] Tilt: +00.00 deg | Vib: 00.00 g | Disp: 000.0 mm
+    3. Central Hub Plain: [NODE 2 DIGITAL OVERRIDE] Tilt: +00.00 deg | Vib: 00.00 g | Disp: 000.0 mm
+    4. Node 1 Direct: [NODE 1 TX SLOT 1] Sent Instant (<1ms): Tilt=+00.00 deg | Vib=00.00 g | Disp=000.0 mm
+    5. Node 2 Direct: [NODE 2 TX SLOT 2] IMU Telemetry: Tilt=00.0 (UPRIGHT) | VibPeak=0.0000g (CALM) | Disp=0.0mm
     """
+    # 1. JSON Telemetry line from Central Hub (streamJsonToLaptopML)
+    if raw_line.startswith("{") and raw_line.endswith("}"):
+        try:
+            j = json.loads(raw_line)
+            nid_raw = str(j.get("node_id", "1"))
+            n_id = 2 if "2" in nid_raw else 1
+            tilt = float(j.get("filtered_tilt", 0.0))
+            vib = float(j.get("filtered_vibration", 0.0))
+            disp = float(j.get("filtered_displacement", 0.0))
+            filter_mode = "KALMAN FILTERED" if n_id == 1 else "DIGITAL OVERRIDE"
+
+            abs_tilt = abs(tilt)
+            is_danger = (disp >= 81.0 or abs_tilt >= 3.801 or vib >= 0.261)
+            is_warning = (disp >= 41.0 or abs_tilt >= 2.01 or vib >= 0.201)
+            status = "DANGER" if is_danger else ("WARNING" if is_warning else "SAFE")
+
+            return {
+                "source": "ESP32_HARDWARE_BRIDGE",
+                "node_id": f"NODE_0{n_id}",
+                "filter_mode": filter_mode,
+                "tilt": tilt,
+                "vibration": vib,
+                "displacement": disp,
+                "status": status,
+                "timestamp": time.strftime("%H:%M:%S")
+            }
+        except Exception:
+            pass
+
+    # 2. Universal regex parser
     node_m = re.search(r"NODE\s*(\d+)", raw_line, re.I)
     tilt_m = re.search(r"Tilt\s*[:=]\s*([+-]?\d+(?:\.\d+)?)", raw_line, re.I)
-    vib_m = re.search(r"Vib\s*[:=]\s*([+-]?\d+(?:\.\d+)?)", raw_line, re.I)
+    vib_m = re.search(r"Vib(?:Peak)?\s*[:=]\s*([+-]?\d+(?:\.\d+)?)", raw_line, re.I)
     disp_m = re.search(r"Disp\s*[:=]\s*([+-]?\d+(?:\.\d+)?)", raw_line, re.I)
 
     if tilt_m and (vib_m or disp_m):
@@ -49,8 +80,9 @@ def parse_telemetry_line(raw_line):
         vib = float(vib_m.group(1)) if vib_m else 0.0
         disp = float(disp_m.group(1)) if disp_m else 0.0
 
-        is_danger = (tilt >= 5.0 or vib >= 0.8 or disp >= 15.0)
-        is_warning = (tilt >= 2.5 or vib >= 0.4 or disp >= 8.0)
+        abs_tilt = abs(tilt)
+        is_danger = (disp >= 81.0 or abs_tilt >= 3.801 or vib >= 0.261)
+        is_warning = (disp >= 41.0 or abs_tilt >= 2.01 or vib >= 0.201)
         status = "DANGER" if is_danger else ("WARNING" if is_warning else "SAFE")
 
         filter_type = "HARDWARE SENSOR"
@@ -76,11 +108,11 @@ def parse_telemetry_line(raw_line):
         }
     return None
 
-# Regex matching Alert format from central_hub_esp32s3_5.ino:
+# Regex matching Alert format from central_hub_esp32s3_v6.ino & v5.ino:
+# "[LOCAL ALERT] Node 1 BREACH LATCHED! Tilt: 5.2 deg, Vib: 0.35 g, Disp: 42.0 mm"
 # "[LOCAL ALERT] Node 1 breached safety limit! Tilt: 5.2 deg, Disp: 16.2 mm"
-# Also supports optional Vib parameter if present
 PATTERN_ALERT = re.compile(
-    r"\[LOCAL ALERT\]\s+Node\s+(\d+)\s+breached safety limit!\s+Tilt:\s*([+-]?\d+(?:\.\d+)?)\s*deg(?:,\s*Vib:\s*([+-]?\d+(?:\.\d+)?)\s*g)?,\s*Disp:\s*([+-]?\d+(?:\.\d+)?)\s*mm",
+    r"\[LOCAL ALERT\]\s+Node\s+(\d+)\s+(?:BREACH LATCHED!|breached safety limit!)\s+Tilt:\s*([+-]?\d+(?:\.\d+)?)\s*deg(?:,\s*Vib:\s*([+-]?\d+(?:\.\d+)?)\s*g)?,\s*Disp:\s*([+-]?\d+(?:\.\d+)?)\s*mm",
     re.IGNORECASE
 )
 
@@ -247,7 +279,7 @@ def auto_detect_esp32_port(ports, baudrate=115200):
         return ports[0]
     
     # Priority for known active ports
-    for priority_port in ["COM7", "COM8"]:
+    for priority_port in ["COM8", "COM7"]:
         if priority_port in ports:
             print(f"[AUTO-DETECT] Prioritizing active hardware port on {priority_port}")
             return priority_port

@@ -112,12 +112,13 @@ def process_all_64_satellite_rasters_25m(data_dir: str = "data"):
             all_vib = np.clip(temporal_vib_map[valid_mask] + np.abs(all_disp) * 2.5, 0.01, 6.0)
             all_strain = np.clip(spatial_strain_map[valid_mask] + np.abs(all_disp) * 4.0, 0.001, 8.0)
 
-            # Assign ground truth hazard classification (DGMS / SIH standards)
+            # Assign ground truth hazard classification (Hackathon Hardware Sensors: HC-SR04, DFR0028, DFR0027)
+            abs_tilt = np.abs(all_tilt)
             all_status = np.where(
-                (all_tilt >= 4.0) | (all_vib >= 1.5) | (all_strain >= 2.0),
+                (all_strain > 80.0) | (abs_tilt > 3.80) | (all_vib > 0.260),
                 "DANGER",
                 np.where(
-                    (all_tilt >= 0.4) | (all_vib >= 0.35) | (all_strain >= 0.4),
+                    (all_strain > 40.0) | (abs_tilt > 2.00) | (all_vib > 0.200),
                     "WARNING",
                     "SAFE"
                 )
@@ -352,10 +353,11 @@ def run_gpu_feature_pipeline(df: pd.DataFrame, gpu_info: dict):
         float v = vib[idx];
         float s = strain[idx];
 
-        // 0: SAFE, 1: WARNING, 2: DANGER (DGMS Standard)
-        if (t >= 4.0f || v >= 1.5f || s >= 2.0f) {
+        // 0: SAFE, 1: WARNING, 2: DANGER (Hackathon Hardware Standard)
+        float abs_t = fabs(t);
+        if (s > 80.0f || abs_t > 3.80f || v > 0.260f) {
             risk_class[idx] = 2;
-        } else if (t >= 0.4f || v >= 0.35f || s >= 0.4f) {
+        } else if (s > 40.0f || abs_t > 2.00f || v > 0.200f) {
             risk_class[idx] = 1;
         } else {
             risk_class[idx] = 0;
