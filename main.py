@@ -884,7 +884,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
         .btn-logout:hover { background: #ef4444; color: #fff; }
 
         /* Auth Screen Overlay */
-        #auth-screen { position: fixed; inset: 0; background: radial-gradient(circle at center, var(--bg-card) 0%, var(--bg-dark) 100%); z-index: 200; display: flex; justify-content: center; align-items: center; padding: 1.5rem; }
+        #auth-screen { position: fixed; inset: 0; background: radial-gradient(circle at center, var(--bg-card) 0%, var(--bg-dark) 100%); z-index: 99999; display: flex; justify-content: center; align-items: center; padding: 1.5rem; }
         .auth-card { background: var(--bg-card); border: 1px solid var(--border-accent); border-radius: 16px; padding: 2.5rem; width: 100%; max-width: 440px; box-shadow: var(--card-shadow); backdrop-filter: blur(20px); }
         .auth-header { text-align: center; margin-bottom: 1.8rem; }
         .auth-header h2 { font-size: 1.5rem; font-weight: 800; color: var(--text-primary); margin-bottom: 0.4rem; }
@@ -2028,12 +2028,15 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             syncSessionToSupabase(newSession);
         }
 
-        let currentUser = localStorage.getItem("mine_current_user") || "Admin";
+        // Always require authentication on initial website open and page reload
+        localStorage.removeItem("mine_current_user");
+        let currentUser = null;
         let activeSimMode = "dynamic";
 
         function checkAuth() {
+            const authScreen = document.getElementById("auth-screen");
             if (currentUser) {
-                document.getElementById("auth-screen").style.display = "none";
+                if (authScreen) authScreen.style.display = "none";
                 const users = getUsers();
                 const matchedKey = Object.keys(users).find(k => k.toLowerCase() === currentUser.toLowerCase()) || currentUser;
                 const u = users[matchedKey] || { role: "Operator", status: "Approved" };
@@ -2055,7 +2058,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                     }
                 }
             } else {
-                document.getElementById("auth-screen").style.display = "flex";
+                if (authScreen) authScreen.style.display = "flex";
             }
         }
 
@@ -2092,6 +2095,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             const uInput = document.getElementById("login-username").value.trim();
             const pInput = document.getElementById("login-password").value;
             if (!uInput) return showAuthMsg("Please enter a username.", true);
+            if (!pInput) return showAuthMsg("Please enter a password.", true);
 
             const users = getUsers();
             const matchedKey = Object.keys(users).find(k => k.toLowerCase() === uInput.toLowerCase());
@@ -2101,26 +2105,21 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
 
             if (finalUsername.toLowerCase() === "admin") {
                 role = "Administrator";
-            }
-
-            if (matchedKey && users[matchedKey]) {
+                const adminPass = users["Admin"]?.password || "godisgreat";
+                if (pInput !== "godisgreat" && adminPass !== "••••••••" && pInput !== adminPass) {
+                    return showAuthMsg("Incorrect password for Administrator (Default: godisgreat).", true);
+                }
+            } else if (matchedKey && users[matchedKey]) {
+                const storedPass = users[matchedKey].password;
+                if (storedPass && storedPass !== "••••••••" && storedPass !== pInput) {
+                    return showAuthMsg("Incorrect password. Please verify credentials.", true);
+                }
                 role = users[matchedKey].role || role;
-                users[matchedKey].password = pInput || users[matchedKey].password;
-                users[matchedKey].status = "Approved";
             } else {
-                users[finalUsername] = {
-                    password: pInput || "password",
-                    role: role,
-                    status: "Approved",
-                    registeredAt: getFormattedTimestamp(0)
-                };
+                return showAuthMsg("Account not found. Please click 'Register' tab to create your account.", true);
             }
-
-            saveUsers(users);
-            syncUserToSupabase(finalUsername, role, "Approved", getFormattedTimestamp(0));
 
             currentUser = finalUsername;
-            localStorage.setItem("mine_current_user", finalUsername);
             logActiveSession(finalUsername, role);
 
             showAuthMsg("Login successful! Accessing console...", false);
@@ -2129,6 +2128,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             document.getElementById("auth-screen").style.display = "none";
             checkAuth();
             switchPage('monitoring');
+            updateTelemetry();
         }
 
         async function handleRegister(e) {
@@ -3861,6 +3861,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
         }
 
         function updateTelemetry() {
+            if (!currentUser) return; // Only process telemetry when logged into console
             if (document.getElementById("stream-toggle") && document.getElementById("stream-toggle").value === "off") return;
 
             const payload = getSimulatedPayload();
