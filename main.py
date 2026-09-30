@@ -1367,12 +1367,6 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                         <button type="button" class="chart-btn" onclick="zoomTrendChart(1.4, 'x')" title="Horizontal Zoom (stretch time observations)">↔ Horizontal Zoom</button>
                         <button type="button" class="chart-btn" onclick="resetTrendChartZoom()" title="Reset chart view to 100%">↺ Reset Zoom</button>
                     </div>
-                    <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
-                        <span style="font-size: 0.74rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">Channels:</span>
-                        <button type="button" class="chart-btn active" id="btn-focus-all" onclick="setChartFocus('all')">All</button>
-                        <button type="button" class="chart-btn" id="btn-focus-tiltvib" onclick="setChartFocus('tiltvib')" style="color: #38bdf8;" title="Isolate Tilt & Vibration to see small values clearly">Tilt & Vib Only</button>
-                        <button type="button" class="chart-btn" id="btn-focus-strain" onclick="setChartFocus('strain')" style="color: #ef4444;" title="Isolate Displacement">Displacement Only</button>
-                    </div>
                 </div>
                 <div style="position: relative; height: 380px; width: 100%;">
                     <canvas id="trendChart"></canvas>
