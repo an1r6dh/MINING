@@ -1,7 +1,7 @@
 /**
  * ====================================================================================================
  * PROJECT: INTRINSICALLY SAFE REAL-TIME MINE SUBSIDENCE MONITORING & EARLY WARNING (SIH 26025)
- * FIRMWARE: ESP32-S3 Central Master Hub (central_hub_esp32s3_v6.ino)
+ * FIRMWARE: ESP32-S3 Central Master Hub (central_hub_esp32s3_v7.ino)
  * TARGET: ESP32-S3 Development Board (Arduino IDE Compilable)
  * ====================================================================================================
  * 
@@ -69,7 +69,7 @@
 
 #define CRITICAL_DISPLACEMENT_THRESH_MM 40.0f       // Critical rock mass displacement trigger (mm)
 #define CRITICAL_TILT_THRESH_DEG        2.0f        // Critical angular tilt trigger (degrees)
-#define CRITICAL_VIBRATION_THRESH_G     0.25f       // Critical vibration threshold (g) — geotechnical calibration value
+#define CRITICAL_VIBRATION_THRESH_G     0.8f        // Critical vibration threshold (g) — geotechnical calibration value
 #define NODE_TIMEOUT_MS                 3500        // Timeout threshold before marking a node offline
 
 #define TDMA_FRAME_PERIOD_MS        1000            // Master TDMA superframe period (1000 ms)
@@ -195,6 +195,12 @@ uint32_t lastAutoSmsDispatchTime = 0;
 
 // Dual-Core Thread-Safe Concurrency Flags
 volatile bool criticalAlarmActive = false;
+
+// ISR-safe pending telemetry buffer:
+// OnDataRecv() may be called from a Wi-Fi ISR context where Serial/FPU/Kalman are illegal.
+// It copies the raw packet here and sets the flag; loop() drains it safely.
+volatile bool pendingTelemetryReady = false;
+SensorPayload pendingTelemetryPacket;
 
 // Persistent Collapse Guard State
 bool nodeBreached[MAX_SUPPORTED_NODES] = {false};
@@ -472,6 +478,11 @@ void processIncomingData(const SensorPayload& payload) {
 
 /* ====================================================================================================
  * 9. ESP-NOW RECEPTION CALLBACK (CORE 1)
+ * ====================================================================================================
+ * SAFETY: OnDataRecv is invoked from a Wi-Fi driver ISR task context.
+ * Calling Serial.printf, Kalman filter math, or xQueueSend here is illegal and
+ * can trigger WDT resets or FPU exceptions. Instead, memcpy the packet into the
+ * ISR-safe pending buffer and set a flag; loop() drains it on the next iteration.
  * ==================================================================================================== */
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
 void OnDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *incomingData, int len) {
@@ -481,13 +492,12 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
     if (len == sizeof(SensorPayload)) {
         SensorPayload packet;
         memcpy(&packet, incomingData, sizeof(SensorPayload));
-        if (packet.msg_type == PKT_TYPE_TELEMETRY) {
-            processIncomingData(packet);
+        if (packet.msg_type == PKT_TYPE_TELEMETRY && !pendingTelemetryReady) {
+            memcpy((void*)&pendingTelemetryPacket, &packet, sizeof(SensorPayload));
+            pendingTelemetryReady = true; // Consumed by loop() on next iteration
         }
-    } else {
-        Serial.printf("[ESP-NOW WARN] Unknown packet size: %d bytes (Expected %u)\n", 
-                      len, (unsigned int)sizeof(SensorPayload));
     }
+    // Unknown packet sizes are silently dropped; Serial.printf is unsafe here.
 }
 
 /* ====================================================================================================
@@ -681,7 +691,7 @@ void checkSerialCommands() {
 void setup() {
     Serial.begin(115200);
     delay(1000);
-    Serial.println("\n[SYSTEM] ESP32-S3 Central Master Hub (central_hub_esp32s3_v6) Booting...");
+    Serial.println("\n[SYSTEM] ESP32-S3 Central Master Hub (central_hub_esp32s3_v7) Booting...");
 
     // Create FreeRTOS Queue BEFORE attaching interrupts in initHardware()
     gsmQueue = xQueueCreate(5, sizeof(SmsAlertRequest));
@@ -712,6 +722,14 @@ void setup() {
  * ==================================================================================================== */
 void loop() {
     uint32_t currentMillis = millis();
+
+    // Drain ISR-buffered telemetry packet safely (Serial/FPU/Kalman legal here on Core 1)
+    if (pendingTelemetryReady) {
+        pendingTelemetryReady = false;
+        SensorPayload localCopy;
+        memcpy(&localCopy, (void*)&pendingTelemetryPacket, sizeof(SensorPayload));
+        processIncomingData(localCopy);
+    }
 
     // Master TDMA Beacon Broadcast (Strict 1000ms superframe)
     if (currentMillis - lastBeaconTxTime >= TDMA_FRAME_PERIOD_MS) {

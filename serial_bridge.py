@@ -2,7 +2,7 @@
 ====================================================================================================
 PROJECT: INTRINSICALLY SAFE REAL-TIME MINE SUBSIDENCE MONITORING (SIH 26025)
 MODULE : USB Serial Hardware Bridge to Web Dashboard & Email Alert System
-TARGET : Listens to ESP32-S3 Central Master Hub (central_hub_esp32s3_5.ino) @ 115200 Baud
+TARGET : Listens to ESP32-S3 Central Master Hub (central_hub_esp32s3_v7.ino) @ 115200 Baud
 ====================================================================================================
 """
 
@@ -194,15 +194,15 @@ def run_hardware_listener(port, baudrate=115200, target_url="http://127.0.0.1:80
                 except Exception: pass
             time.sleep(2.0)
 
-def run_prehardware_emulator(target_url="http://127.0.0.1:8000/api/hardware_telemetry"):
+def run_prehardware_emulator(target_url="http://127.0.0.1:8000/api/hardware_telemetry", once=False):
     """
-    Simulates the exact output stream of central_hub_esp32s3_5.ino
+    Simulates the exact output stream of central_hub_esp32s3_v7.ino
     so you can test the entire hardware-to-dashboard-to-email pipeline
     before the physical hardware arrives.
     """
     print("\n=======================================================")
     print("[PRE-HARDWARE EMULATOR] RUNNING VIRTUAL ESP32-S3 TDMA HUB")
-    print("Firmware Logic : central_hub_esp32s3_v6.ino")
+    print("Firmware Logic : central_hub_esp32s3_v7.ino")
     print("Wi-Fi Channel  : 1 (ESP-NOW Locked)")
     print("Superframe     : 1000ms (TDMA Slot 1: Node 1 | Slot 2: Node 2)")
     print(f"Target Backend : {target_url}")
@@ -240,33 +240,81 @@ def run_prehardware_emulator(target_url="http://127.0.0.1:8000/api/hardware_tele
     while True:
         try:
             frame_id += 1
-            # Baseline stationary readings with slight physical noise
-            raw_tilt = random.gauss(0.15, 0.25)
-            raw_vib = abs(random.gauss(0.05, 0.04))
-            raw_disp = max(0.0, random.gauss(0.8, 0.3))
 
-            filt_tilt = kf_tilt.update(raw_tilt)
-            filt_vib = kf_vib.update(raw_vib)
-            filt_disp = kf_disp.update(raw_disp)
+            # ---------------------------------------------------------
+            # 1. SLOT 1: NODE 1 (Geotechnical Continuous - Kalman Filtered)
+            # ---------------------------------------------------------
+            raw_tilt1 = random.gauss(0.15, 0.25)
+            raw_vib1 = abs(random.gauss(0.05, 0.04))
+            raw_disp1 = max(0.0, random.gauss(0.8, 0.3))
 
-            sim_line = f"[NODE 1 KALMAN FILTERED] Tilt: {filt_tilt:+06.2f} deg | Vib: {filt_vib:05.2f} g | Disp: {filt_disp:05.1f} mm"
-            print(f"[VIRTUAL SERIAL Frame #{frame_id:04d}] {sim_line}")
+            filt_tilt1 = kf_tilt.update(raw_tilt1)
+            filt_vib1 = kf_vib.update(raw_vib1)
+            filt_disp1 = kf_disp.update(raw_disp1)
 
-            status = "SAFE"
-            payload = {
+            sim_line1 = f"[NODE 1 KALMAN FILTERED] Tilt: {filt_tilt1:+06.2f} deg | Vib: {filt_vib1:05.2f} g | Disp: {filt_disp1:05.1f} mm"
+            json_line1 = json.dumps({
+                "node_id": "NODE_SECTOR_01",
+                "filtered_tilt": round(filt_tilt1, 2),
+                "filtered_vibration": round(filt_vib1, 2),
+                "filtered_displacement": round(filt_disp1, 1)
+            })
+            print(f"[VIRTUAL SERIAL Slot 1] {sim_line1}")
+            print(f"                      {json_line1}")
+
+            payload1 = {
                 "source": "VIRTUAL_ESP32_S3",
                 "node_id": "NODE_01",
                 "filter_mode": "KALMAN FILTERED",
-                "tilt": round(filt_tilt, 2),
-                "vibration": round(filt_vib, 2),
-                "displacement": round(filt_disp, 1),
-                "status": status,
+                "tilt": round(filt_tilt1, 2),
+                "vibration": round(filt_vib1, 2),
+                "displacement": round(filt_disp1, 1),
+                "status": "SAFE",
                 "frame_id": frame_id,
                 "timestamp": time.strftime("%H:%M:%S")
             }
-            post_telemetry_to_dashboard(payload, target_url)
+            posted1 = post_telemetry_to_dashboard(payload1, target_url)
+            print(f"       --> PUSHED NODE_01: {payload1['tilt']:+.2f}deg | {payload1['vibration']:.2f}g | {payload1['displacement']:.1f}mm | {'[OK]' if posted1 else '[OFFLINE]'}")
 
-            time.sleep(1.0) # 1000ms TDMA superframe
+            time.sleep(0.08) # 80ms slot 1 duration
+
+            # ---------------------------------------------------------
+            # 2. SLOT 2: NODE 2 (Perimeter Digital Tripwire - SW-420 + Tilt)
+            # ---------------------------------------------------------
+            # Node 2 digital state: upright tilt = 0.0, calm vibration = 0.0
+            # Occasionally simulate a safe micro-pulse or keep clean 0.0
+            n2_tilt = 0.0
+            n2_vib = 0.0
+            n2_disp = 0.0
+
+            sim_line2 = f"[NODE 2 DIGITAL OVERRIDE] Tilt: {n2_tilt:+06.2f} deg | Vib: {n2_vib:05.2f} g | Disp: {n2_disp:05.1f} mm"
+            json_line2 = json.dumps({
+                "node_id": "NODE_SECTOR_02",
+                "filtered_tilt": n2_tilt,
+                "filtered_vibration": n2_vib,
+                "filtered_displacement": n2_disp
+            })
+            print(f"[VIRTUAL SERIAL Slot 2] {sim_line2}")
+            print(f"                      {json_line2}")
+
+            payload2 = {
+                "source": "VIRTUAL_ESP32_S3",
+                "node_id": "NODE_02",
+                "filter_mode": "DIGITAL OVERRIDE",
+                "tilt": n2_tilt,
+                "vibration": n2_vib,
+                "displacement": n2_disp,
+                "status": "SAFE",
+                "frame_id": frame_id,
+                "timestamp": time.strftime("%H:%M:%S")
+            }
+            posted2 = post_telemetry_to_dashboard(payload2, target_url)
+            print(f"       --> PUSHED NODE_02: {payload2['tilt']:+.2f}deg | {payload2['vibration']:.2f}g | {payload2['displacement']:.1f}mm | {'[OK]' if posted2 else '[OFFLINE]'}")
+
+            if once:
+                break
+
+            time.sleep(0.92) # Complete the 1000ms TDMA superframe
         except KeyboardInterrupt:
             print("\n[INFO] Virtual emulator stopped.")
             break
@@ -309,21 +357,25 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Mine Subsidence ESP32-S3 Hardware Bridge")
     parser.add_argument("--port", type=str, default=None, help="COM port for ESP32-S3 (e.g. COM7, COM3, /dev/ttyUSB0)")
     parser.add_argument("--baud", type=int, default=115200, help="Baud rate (default: 115200)")
-    parser.add_argument("--url", type=str, default="http://127.0.0.1:8000/api/hardware_telemetry", help="Target API URL")
+    parser.add_argument("--url", "--target", dest="url", type=str, default="http://127.0.0.1:8000/api/hardware_telemetry", help="Target API URL")
+    parser.add_argument("--vercel", action="store_true", help="Stream telemetry directly to live Vercel dashboard")
     parser.add_argument("--mock", action="store_true", help="Run in Pre-Hardware Virtual TDMA Mode")
+    parser.add_argument("--once", action="store_true", help="Emit a single TDMA superframe test packet and exit")
     args = parser.parse_args()
 
-    if args.mock:
-        run_prehardware_emulator(args.url)
+    target_url = "https://mining-anivedas-5643s-projects.vercel.app/api/hardware_telemetry" if args.vercel else args.url
+
+    if args.mock or args.once:
+        run_prehardware_emulator(target_url, once=args.once)
     else:
         ports = list_available_ports()
         if args.port:
-            run_hardware_listener(args.port, args.baud, args.url)
+            run_hardware_listener(args.port, args.baud, target_url)
         elif ports:
             target_port = auto_detect_esp32_port(ports, args.baud)
             print(f"[BRIDGE] Selected active port: {target_port}")
-            run_hardware_listener(target_port, args.baud, args.url)
+            run_hardware_listener(target_port, args.baud, target_url)
         else:
             print("[NOTICE] No physical USB COM ports currently detected.")
-            print("         Starting Pre-Hardware Virtual TDMA Mode (matching central_hub_esp32s3_5.ino math)...")
-            run_prehardware_emulator(args.url)
+            print("         Starting Pre-Hardware Virtual TDMA Mode (matching central_hub_esp32s3_v7.ino math)...")
+            run_prehardware_emulator(target_url, once=args.once)

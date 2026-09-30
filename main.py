@@ -795,6 +795,13 @@ start_hardware_serial_worker()
 
 @app.get("/", response_class=HTMLResponse)
 def get_index():
+    index_file = os.path.join(BASE_DIR, "index.html")
+    if os.path.exists(index_file):
+        try:
+            with open(index_file, "r", encoding="utf-8") as f:
+                return HTMLResponse(content=f.read())
+        except Exception:
+            pass
     return HTMLResponse(content=HTML_DASHBOARD)
 
 HTML_DASHBOARD = r"""<!DOCTYPE html>
@@ -1844,6 +1851,17 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             document.getElementById("theme-text").textContent = isLight ? "Dark Mode" : "Light Mode";
 
             applyChartTheme(isLight);
+        }
+
+        // Multi-environment API Base URL Resolver (Localhost, Port Proxy & Vercel Cloud)
+        function getApiBaseUrl() {
+            if (window.API_BASE_URL) return window.API_BASE_URL;
+            if (window.location.protocol === 'file:') return 'http://127.0.0.1:8000';
+            const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '[::1]';
+            if (isLocalhost && window.location.port && window.location.port !== '8000') {
+                return 'http://127.0.0.1:8000';
+            }
+            return '';
         }
 
         // Supabase Cloud Database Integration
@@ -2970,7 +2988,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
 
                 // Request server to release COM port
                 try {
-                    const apiBase = window.API_BASE_URL || (window.location.protocol === 'file:' ? 'http://127.0.0.1:8000' : (window.location.port !== '8000' ? 'http://127.0.0.1:8000' : ''));
+                    const apiBase = getApiBaseUrl();
                     await fetch(apiBase.replace(/\/+$/, "") + "/api/release_serial", { method: "POST" });
                     await new Promise(r => setTimeout(r, 600)); // wait for COM release
                 } catch(e) {}
@@ -3000,7 +3018,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                 console.warn("Serial connection canceled or failed:", err);
                 // Re-claim server if user cancelled or it failed
                 try {
-                    const apiBase = window.API_BASE_URL || (window.location.protocol === 'file:' ? 'http://127.0.0.1:8000' : (window.location.port !== '8000' ? 'http://127.0.0.1:8000' : ''));
+                    const apiBase = getApiBaseUrl();
                     await fetch(apiBase.replace(/\/+$/, "") + "/api/claim_serial", { method: "POST" });
                 } catch(e) {}
 
@@ -3023,7 +3041,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
 
             // Re-claim serial port for backend server daemon
             try {
-                const apiBase = window.API_BASE_URL || (window.location.protocol === 'file:' ? 'http://127.0.0.1:8000' : (window.location.port !== '8000' ? 'http://127.0.0.1:8000' : ''));
+                const apiBase = getApiBaseUrl();
                 await fetch(apiBase.replace(/\/+$/, "") + "/api/claim_serial", { method: "POST" });
             } catch(e) {}
 
@@ -3084,29 +3102,53 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             const line = rawLine.trim();
             if (!line) return;
 
-            // Extract Node ID (default to selectedNodeId if not specified in packet)
-            const nodeMatch = line.match(/NODE\s*(\d+)/i);
             let nodeIdStr = selectedNodeId || "NODE_01";
-            if (nodeMatch) {
-                nodeIdStr = "NODE_0" + parseInt(nodeMatch[1], 10);
+            let tiltVal = 0.0;
+            let vibVal = 0.0;
+            let dispVal = 0.0;
+            let filterMode = "HARDWARE SENSOR";
+            let parsed = false;
+
+            // 1. JSON Telemetry line from Central Hub v7 streamJsonToLaptopML
+            if (line.startsWith("{") && line.endsWith("}")) {
+                try {
+                    const j = JSON.parse(line);
+                    const nidRaw = String(j.node_id || "1");
+                    const nId = nidRaw.includes("2") ? 2 : 1;
+                    nodeIdStr = "NODE_0" + nId;
+                    tiltVal = parseFloat(j.filtered_tilt || 0);
+                    vibVal = parseFloat(j.filtered_vibration || 0);
+                    dispVal = parseFloat(j.filtered_displacement || 0);
+                    filterMode = (nId === 1) ? "KALMAN FILTERED" : "DIGITAL OVERRIDE";
+                    parsed = true;
+                } catch(e) {}
             }
 
-            // Universal regex matching Tilt, Vib, and Disp across all 3 firmware formats
-            const tiltMatch = line.match(/Tilt\s*[:=]\s*([+-]?\d+(?:\.\d+)?)/i);
-            const vibMatch  = line.match(/Vib\s*[:=]\s*([+-]?\d+(?:\.\d+)?)/i);
-            const dispMatch = line.match(/Disp\s*[:=]\s*([+-]?\d+(?:\.\d+)?)/i);
+            // 2. Universal regex matching Tilt, Vib, and Disp across all firmware formats
+            if (!parsed) {
+                const nodeMatch = line.match(/NODE\s*(\d+)/i);
+                if (nodeMatch) {
+                    nodeIdStr = "NODE_0" + parseInt(nodeMatch[1], 10);
+                }
 
-            if (tiltMatch && (vibMatch || dispMatch)) {
-                const tiltVal = parseFloat(tiltMatch[1]);
-                const vibVal = vibMatch ? parseFloat(vibMatch[1]) : 0.0;
-                const dispVal = dispMatch ? parseFloat(dispMatch[1]) : 0.0;
+                const tiltMatch = line.match(/Tilt\s*[:=]\s*([+-]?\d+(?:\.\d+)?)/i);
+                const vibMatch  = line.match(/Vib\s*[:=]\s*([+-]?\d+(?:\.\d+)?)/i);
+                const dispMatch = line.match(/Disp\s*[:=]\s*([+-]?\d+(?:\.\d+)?)/i);
 
-                let filterMode = "HARDWARE SENSOR";
-                if (/KALMAN/i.test(line)) filterMode = "KALMAN FILTERED";
-                else if (/OVERRIDE|DIGITAL/i.test(line)) filterMode = "DIGITAL OVERRIDE";
-                else if (/SLOT\s*1/i.test(line)) filterMode = "NODE 1 DIRECT (Slot 1)";
-                else if (/SLOT\s*2/i.test(line)) filterMode = "NODE 2 DIRECT (Slot 2)";
+                if (tiltMatch && (vibMatch || dispMatch)) {
+                    tiltVal = parseFloat(tiltMatch[1]);
+                    vibVal = vibMatch ? parseFloat(vibMatch[1]) : 0.0;
+                    dispVal = dispMatch ? parseFloat(dispMatch[1]) : 0.0;
 
+                    if (/KALMAN/i.test(line)) filterMode = "KALMAN FILTERED";
+                    else if (/OVERRIDE|DIGITAL/i.test(line)) filterMode = "DIGITAL OVERRIDE";
+                    else if (/SLOT\s*1/i.test(line)) filterMode = "NODE 1 DIRECT (Slot 1)";
+                    else if (/SLOT\s*2/i.test(line)) filterMode = "NODE 2 DIRECT (Slot 2)";
+                    parsed = true;
+                }
+            }
+
+            if (parsed) {
                 const isDanger = (dispVal >= CRITICAL_DISPLACEMENT_THRESH_MM || Math.abs(tiltVal) >= CRITICAL_TILT_THRESH_DEG || vibVal >= CRITICAL_VIBRATION_THRESH_G);
                 const isWarning = (dispVal >= 8.0 || Math.abs(tiltVal) >= 2.5 || vibVal >= 0.4);
                 const statusVal = isDanger ? "DANGER" : (isWarning ? "WARNING" : "SAFE");
@@ -3118,6 +3160,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                 liveHardwareData.source = "USB_HARDWARE";
                 if (!liveHardwareData.nodes) liveHardwareData.nodes = {};
 
+                const timeStr = new Date().toLocaleTimeString();
                 liveHardwareData.nodes[nodeIdStr] = {
                     node_id: nodeIdStr,
                     filter_mode: filterMode,
@@ -3125,7 +3168,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                     vibration: vibVal,
                     displacement: dispVal,
                     status: statusVal,
-                    timestamp: new Date().toLocaleTimeString(),
+                    timestamp: timeStr,
                     received_at: Date.now(),
                     connected: true
                 };
@@ -3144,6 +3187,26 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
 
                 // CRITICAL FIX: IMMEDIATELY PUSH PHYSICAL TELEMETRY INTO DASHBOARD UI
                 updateTelemetry();
+
+                // Forward parsed readings to backend (/api/hardware_telemetry)
+                try {
+                    const apiBase = getApiBaseUrl();
+                    const targetEndpoint = apiBase.replace(/\/+$/, "") + "/api/hardware_telemetry";
+                    fetch(targetEndpoint, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            source: "BROWSER_WEB_SERIAL",
+                            node_id: nodeIdStr,
+                            filter_mode: filterMode,
+                            tilt: tiltVal,
+                            vibration: vibVal,
+                            displacement: dispVal,
+                            status: statusVal,
+                            timestamp: timeStr
+                        })
+                    }).catch(() => {});
+                } catch(e) {}
             }
         }
 
@@ -3152,7 +3215,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             if (isWebSerialReading) return; // Web Serial handles active stream
 
             try {
-                const apiBase = window.API_BASE_URL || (window.location.protocol === 'file:' ? 'http://127.0.0.1:8000' : (window.location.port !== '8000' ? 'http://127.0.0.1:8000' : ''));
+                const apiBase = getApiBaseUrl();
                 const targetEndpoint = apiBase.replace(/\/+$/, "") + "/api/hardware_telemetry";
                 const res = await fetch(targetEndpoint, { method: "GET" });
                 if (res.ok) {

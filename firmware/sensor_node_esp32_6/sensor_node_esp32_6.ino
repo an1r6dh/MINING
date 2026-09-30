@@ -1,7 +1,7 @@
 /**
  * ====================================================================================================
  * PROJECT: INTRINSICALLY SAFE REAL-TIME MINE SUBSIDENCE MONITORING (SIH 26025)
- * FIRMWARE: Sensor Field Node 1 (sensor_node_esp32_5.ino)
+ * FIRMWARE: Sensor Field Node 1 (sensor_node_esp32_6.ino)
  * TARGET: Standard ESP32 Development Board (Arduino IDE Compilable)
  * ====================================================================================================
  * 
@@ -89,7 +89,7 @@ MPU6050 mpu(Wire);
 volatile bool beaconReceived = false;
 volatile uint32_t syncLocalTimeMs = 0;
 volatile uint16_t currentSlotDurationMs = 80;
-bool slotTransmittedForFrame = false;
+volatile bool slotTransmittedForFrame = false; // Written by ESP-NOW ISR (OnDataRecv) — must be volatile
 
 // Pre-cached sensor telemetry for instantaneous (<1ms) TDMA dispatch
 float cachedTilt = 0.0f;
@@ -98,33 +98,79 @@ float cachedDisp = 0.0f;
 
 // Background ultrasonic sampling timer
 uint32_t lastUltrasonicSampleMs = 0;
-#define ULTRASONIC_SAMPLE_INTERVAL_MS 60
+#define ULTRASONIC_SAMPLE_INTERVAL_MS 100
+
+// --- Interrupt-driven HC-SR04 echo timing ---
+// pulseIn() busy-waits and is fatally disrupted by ESP-NOW Wi-Fi radio ISRs.
+// Instead, we record echo rise/fall timestamps via a GPIO ISR.
+volatile uint32_t echoRiseUs  = 0;
+volatile uint32_t echoFallUs  = 0;
+volatile bool     echoReady   = false; // true once a complete pulse has been captured
+volatile bool     echoWaiting = false; // true between trigger and first rising edge
+
+void IRAM_ATTR echoISR() {
+    if (digitalRead(PIN_ECHO) == HIGH) {
+        // Rising edge — pulse has started
+        echoRiseUs  = micros();
+        echoReady   = false;
+        echoWaiting = true;
+    } else {
+        // Falling edge — pulse complete
+        if (echoWaiting) {
+            echoFallUs  = micros();
+            echoReady   = true;
+            echoWaiting = false;
+        }
+    }
+}
 
 /* ====================================================================================================
- * 4. HC-SR04 ULTRASONIC DISPLACEMENT SENSOR DRIVER (BACKGROUND NON-BLOCKING)
+ * 4. HC-SR04 ULTRASONIC DISPLACEMENT SENSOR DRIVER (INTERRUPT-DRIVEN, NON-BLOCKING)
  * ==================================================================================================== */
 
 /**
- * @brief Measures distance using HC-SR04 and converts to millimeters (mm)
- * Speed of sound = 343 m/s = 0.343 mm/microsecond
- * One-way distance = (duration_us * 0.343) / 2 = duration_us * 0.1715
+ * @brief Fires the HC-SR04 trigger pulse. The echo is captured asynchronously by echoISR().
+ *        Call this, then poll readCachedUltrasonicMm() after ~38ms for the result.
+ *
+ * Root-cause fix: pulseIn() busy-waits and is fatally preempted by ESP-NOW Wi-Fi radio ISRs,
+ * causing it to always return 0 and log a false SENSOR FAULT. The ISR approach records
+ * echo rise/fall timestamps independently of the main execution context.
  */
-float readUltrasonicDisplacementMm() {
+void triggerUltrasonic() {
+    echoReady   = false;
+    echoWaiting = false;
     digitalWrite(PIN_TRIG, LOW);
     delayMicroseconds(2);
-
     digitalWrite(PIN_TRIG, HIGH);
     delayMicroseconds(10);
     digitalWrite(PIN_TRIG, LOW);
+    // echoISR() will fire on the rising/falling edge of PIN_ECHO
+}
 
-    // 6ms timeout (~100cm max range ceiling)
-    long duration_us = pulseIn(PIN_ECHO, HIGH, 6000);
+/**
+ * @brief Returns the distance in mm from the last completed echo capture, or -999 on timeout.
+ *        Must be called at least ~38ms after triggerUltrasonic().
+ */
+float readCachedUltrasonicMm() {
+    // ATOMIC SNAPSHOT: echoRiseUs and echoFallUs are both written by echoISR().
+    // Reading them across two separate statements without disabling interrupts risks
+    // a torn read — the ISR could update echoFallUs between the two reads, producing
+    // a near-zero or garbage duration_us. Snapshot both atomically.
+    noInterrupts();
+    bool     ready  = echoReady;
+    uint32_t rise   = echoRiseUs;
+    uint32_t fall   = echoFallUs;
+    interrupts();
 
-    if (duration_us == 0) {
+    if (!ready) {
         Serial.println("[SENSOR FAULT] Node 1: Ultrasonic echo timeout/disconnected. Skipping displacement parameter.");
-        return -999.0f; // Return sentinel value
+        return -999.0f;
     }
-
+    uint32_t duration_us = fall - rise;
+    if (duration_us == 0 || duration_us > 38000) {
+        Serial.println("[SENSOR FAULT] Node 1: Ultrasonic echo out of range. Skipping displacement parameter.");
+        return -999.0f;
+    }
     float distance_mm = (float)duration_us * 0.1715f;
     return distance_mm;
 }
@@ -155,7 +201,7 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
 void setup() {
     Serial.begin(115200);
     delay(500);
-    Serial.printf("\n[NODE %d] Initializing Geotechnical Sensor Node (sensor_node_esp32_5)...\n", NODE_ID);
+    Serial.printf("\n[NODE %d] Initializing Geotechnical Sensor Node (sensor_node_esp32_6)...\n", NODE_ID);
 
     // Initialize Status LED
     pinMode(PIN_STATUS_LED, OUTPUT);
@@ -166,6 +212,9 @@ void setup() {
     pinMode(PIN_ECHO, INPUT);
     digitalWrite(PIN_TRIG, LOW);
 
+    // Attach interrupt-driven echo capture (CHANGE = both rising and falling edges)
+    attachInterrupt(digitalPinToInterrupt(PIN_ECHO), echoISR, CHANGE);
+
     // Initialize I2C Bus and MPU6050_tockn Library
     Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
     Serial.println("[SENSOR] Initializing MPU6050 via MPU6050_tockn...");
@@ -174,8 +223,10 @@ void setup() {
     mpu.calcGyroOffsets(true);
     Serial.println("[SENSOR] MPU6050 calibration complete.");
 
-    // Initial ultrasonic distance read
-    cachedDisp = readUltrasonicDisplacementMm();
+    // Initial ultrasonic trigger (result captured asynchronously via echoISR)
+    triggerUltrasonic();
+    delay(50); // Wait for first echo to complete before entering loop
+    cachedDisp = readCachedUltrasonicMm();
 
     // Initialize Wi-Fi in Station mode for ESP-NOW
     WiFi.mode(WIFI_STA);
@@ -250,20 +301,71 @@ void loop() {
 
     // 3. MANDATORY AUDIT FIX: Ultrasonic background sampling is active during Slot 0 (0-80ms),
     // and ONLY paused when actively inside the Slot 1 transmission window (80-160ms)!
-    uint32_t elapsed = now - syncLocalTimeMs;
-    bool isInsideSlot1Window = (beaconReceived && !slotTransmittedForFrame && 
-                                elapsed >= currentSlotDurationMs && 
-                                elapsed < (2 * currentSlotDurationMs));
+    //
+    // FIX (uint32_t underflow): Re-sample millis() HERE, after mpu.update() completes, so that
+    // syncLocalTimeMs (which may have been updated by the ESP-NOW ISR during mpu.update()) is
+    // always <= currentMs. The ternary guard prevents the rare case where the ISR fires between
+    // the millis() call and the subtraction, yielding 0 instead of 4294967295.
+    uint32_t currentMs = millis();
+    // ATOMIC SNAPSHOT: syncLocalTimeMs and currentSlotDurationMs are written by the
+    // ESP-NOW ISR (OnDataRecv). Reading them without disabling interrupts risks a torn
+    // read where the ISR updates one but not the other mid-computation.
+    noInterrupts();
+    uint32_t snap_syncMs  = syncLocalTimeMs;
+    uint16_t snap_slotDur = currentSlotDurationMs;
+    interrupts();
+    uint32_t elapsed = (currentMs >= snap_syncMs) ? (currentMs - snap_syncMs) : 0;
+    bool isInsideSlot1Window = (beaconReceived && !slotTransmittedForFrame &&
+                                elapsed >= snap_slotDur &&
+                                elapsed < (2 * snap_slotDur));
 
-    if (!isInsideSlot1Window && (now - lastUltrasonicSampleMs >= ULTRASONIC_SAMPLE_INTERVAL_MS)) {
-        lastUltrasonicSampleMs = now;
-        cachedDisp = readUltrasonicDisplacementMm();
+    // INTERRUPT-DRIVEN ULTRASONIC SAMPLING:
+    // Two-phase approach: trigger fires the pulse, then after ~40ms we read the ISR-captured result.
+    // This completely avoids pulseIn() which is fatally preempted by ESP-NOW Wi-Fi radio ISRs.
+    static bool ultrasonicTriggered = false;
+    static uint32_t ultrasonicTriggerMs = 0;
+
+    if (!isInsideSlot1Window) {
+        if (!ultrasonicTriggered && (currentMs - lastUltrasonicSampleMs >= ULTRASONIC_SAMPLE_INTERVAL_MS)) {
+            // Phase 1: Fire the trigger pulse
+            triggerUltrasonic();
+            ultrasonicTriggered  = true;
+            ultrasonicTriggerMs  = currentMs;
+        } else if (ultrasonicTriggered && (currentMs - ultrasonicTriggerMs >= 40)) {
+            // Phase 2: Re-evaluate slot window with the CURRENT time before reading back,
+            // because the slot may have started during the 40ms wait. If we are now inside
+            // the TX window, defer the read to the next loop iteration to avoid delaying TX.
+            noInterrupts();
+            uint32_t snap2_syncMs  = syncLocalTimeMs;
+            uint16_t snap2_slotDur = currentSlotDurationMs;
+            interrupts();
+            uint32_t elapsed2 = (currentMs >= snap2_syncMs) ? (currentMs - snap2_syncMs) : 0;
+            bool nowInSlot = (beaconReceived && !slotTransmittedForFrame &&
+                              elapsed2 >= snap2_slotDur && elapsed2 < (2 * snap2_slotDur));
+            if (!nowInSlot) {
+                cachedDisp             = readCachedUltrasonicMm();
+                ultrasonicTriggered    = false;
+                lastUltrasonicSampleMs = currentMs;
+            }
+        }
     }
 
     // 4. INSTANTANEOUS TDMA SLOT 1 TRANSMISSION (< 1 ms dispatch)
     if (beaconReceived && !slotTransmittedForFrame) {
         uint32_t slotStartTime = (uint32_t)NODE_ID * currentSlotDurationMs; // 80ms
         uint32_t slotEndTime   = slotStartTime + currentSlotDurationMs;     // 160ms
+
+        // FIX (uint32_t underflow): Re-sample currentMs again immediately before the slot
+        // boundary check so any ESP-NOW ISR that fires between section 3 and here is captured.
+        currentMs = millis();
+        noInterrupts();
+        uint32_t tx_syncMs  = syncLocalTimeMs;
+        uint16_t tx_slotDur = currentSlotDurationMs;
+        interrupts();
+        elapsed = (currentMs >= tx_syncMs) ? (currentMs - tx_syncMs) : 0;
+        // Recompute slot boundaries with the freshly snapshotted slot duration
+        slotStartTime = (uint32_t)NODE_ID * tx_slotDur;
+        slotEndTime   = slotStartTime + tx_slotDur;
 
         // STRICT SLOT WINDOW UPPER-BOUND GUARD:
         if (elapsed >= slotStartTime && elapsed < slotEndTime) {
@@ -293,8 +395,8 @@ void loop() {
             slotTransmittedForFrame = true;
             if (beaconReceived) {
                 // Ensure we don't spam if beacon is lost, though outer if handles this
-                Serial.printf("[TDMA GUARD Node %d] Missed window (+%lums, window %lu-%lums). Skipping frame.\n",
-                              NODE_ID, elapsed, slotStartTime, slotEndTime);
+                Serial.printf("[TDMA GUARD Node %d] Missed window (+%ums, window %u-%ums). Skipping frame.\n",
+                              NODE_ID, (unsigned)elapsed, (unsigned)slotStartTime, (unsigned)slotEndTime);
             }
         }
     }
