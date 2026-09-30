@@ -116,16 +116,23 @@ PATTERN_ALERT = re.compile(
     re.IGNORECASE
 )
 
-def post_telemetry_to_dashboard(payload, target_url="http://127.0.0.1:8000/api/hardware_telemetry"):
+def post_telemetry_to_dashboard(payload, target_url="http://127.0.0.1:8000/api/hardware_telemetry", token=None):
     """Posts live parsed hardware readings to the dashboard backend."""
     try:
         data_bytes = json.dumps(payload).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0"
+        }
+        if token:
+            headers["x-vercel-protection-bypass"] = token
+            headers["Authorization"] = f"Bearer {token}"
         req = urllib.request.Request(
             target_url,
             data=data_bytes,
-            headers={"Content-Type": "application/json"}
+            headers=headers
         )
-        with urllib.request.urlopen(req, timeout=1.5) as resp:
+        with urllib.request.urlopen(req, timeout=3.0) as resp:
             return resp.status == 200
     except urllib.error.URLError:
         return False
@@ -138,7 +145,7 @@ def list_available_ports():
         return []
     return [port.device for port in serial.tools.list_ports.comports()]
 
-def run_hardware_listener(port, baudrate=115200, target_url="http://127.0.0.1:8000/api/hardware_telemetry"):
+def run_hardware_listener(port, baudrate=115200, target_url="http://127.0.0.1:8000/api/hardware_telemetry", token=None):
     """Reads live serial data from the physical ESP32-S3 Central Hub."""
     if not HAS_SERIAL:
         print("[ERROR] pyserial is not installed. Run: pip install pyserial")
@@ -167,7 +174,7 @@ def run_hardware_listener(port, baudrate=115200, target_url="http://127.0.0.1:80
                     # 1. Check for standard telemetry line (universal parser)
                     payload = parse_telemetry_line(raw_line)
                     if payload:
-                        posted = post_telemetry_to_dashboard(payload, target_url)
+                        posted = post_telemetry_to_dashboard(payload, target_url, token=token)
                         indicator = "[WEB SYNC OK]" if posted else "[LOCAL ONLY]"
                         print(f"       --> PUSHED {payload['node_id']}: Tilt={payload['tilt']:+.2f}deg | Vib={payload['vibration']:.2f}g | Disp={payload['displacement']:.1f}mm | {payload['status']} {indicator}")
 
@@ -194,7 +201,7 @@ def run_hardware_listener(port, baudrate=115200, target_url="http://127.0.0.1:80
                 except Exception: pass
             time.sleep(2.0)
 
-def run_prehardware_emulator(target_url="http://127.0.0.1:8000/api/hardware_telemetry", once=False):
+def run_prehardware_emulator(target_url="http://127.0.0.1:8000/api/hardware_telemetry", once=False, token=None):
     """
     Simulates the exact output stream of central_hub_esp32s3_v7.ino
     so you can test the entire hardware-to-dashboard-to-email pipeline
@@ -273,7 +280,7 @@ def run_prehardware_emulator(target_url="http://127.0.0.1:8000/api/hardware_tele
                 "frame_id": frame_id,
                 "timestamp": time.strftime("%H:%M:%S")
             }
-            posted1 = post_telemetry_to_dashboard(payload1, target_url)
+            posted1 = post_telemetry_to_dashboard(payload1, target_url, token=token)
             print(f"       --> PUSHED NODE_01: {payload1['tilt']:+.2f}deg | {payload1['vibration']:.2f}g | {payload1['displacement']:.1f}mm | {'[OK]' if posted1 else '[OFFLINE]'}")
 
             time.sleep(0.08) # 80ms slot 1 duration
@@ -281,8 +288,6 @@ def run_prehardware_emulator(target_url="http://127.0.0.1:8000/api/hardware_tele
             # ---------------------------------------------------------
             # 2. SLOT 2: NODE 2 (Perimeter Digital Tripwire - SW-420 + Tilt)
             # ---------------------------------------------------------
-            # Node 2 digital state: upright tilt = 0.0, calm vibration = 0.0
-            # Occasionally simulate a safe micro-pulse or keep clean 0.0
             n2_tilt = 0.0
             n2_vib = 0.0
             n2_disp = 0.0
@@ -308,7 +313,7 @@ def run_prehardware_emulator(target_url="http://127.0.0.1:8000/api/hardware_tele
                 "frame_id": frame_id,
                 "timestamp": time.strftime("%H:%M:%S")
             }
-            posted2 = post_telemetry_to_dashboard(payload2, target_url)
+            posted2 = post_telemetry_to_dashboard(payload2, target_url, token=token)
             print(f"       --> PUSHED NODE_02: {payload2['tilt']:+.2f}deg | {payload2['vibration']:.2f}g | {payload2['displacement']:.1f}mm | {'[OK]' if posted2 else '[OFFLINE]'}")
 
             if once:
@@ -358,6 +363,7 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=str, default=None, help="COM port for ESP32-S3 (e.g. COM7, COM3, /dev/ttyUSB0)")
     parser.add_argument("--baud", type=int, default=115200, help="Baud rate (default: 115200)")
     parser.add_argument("--url", "--target", dest="url", type=str, default="http://127.0.0.1:8000/api/hardware_telemetry", help="Target API URL")
+    parser.add_argument("--token", type=str, default=os.getenv("VERCEL_PROTECTION_TOKEN", None), help="Vercel Protection Bypass Token")
     parser.add_argument("--vercel", action="store_true", help="Stream telemetry directly to live Vercel dashboard")
     parser.add_argument("--mock", action="store_true", help="Run in Pre-Hardware Virtual TDMA Mode")
     parser.add_argument("--once", action="store_true", help="Emit a single TDMA superframe test packet and exit")
@@ -366,16 +372,16 @@ if __name__ == "__main__":
     target_url = "https://mining-anivedas-5643s-projects.vercel.app/api/hardware_telemetry" if args.vercel else args.url
 
     if args.mock or args.once:
-        run_prehardware_emulator(target_url, once=args.once)
+        run_prehardware_emulator(target_url, once=args.once, token=args.token)
     else:
         ports = list_available_ports()
         if args.port:
-            run_hardware_listener(args.port, args.baud, target_url)
+            run_hardware_listener(args.port, args.baud, target_url, token=args.token)
         elif ports:
             target_port = auto_detect_esp32_port(ports, args.baud)
             print(f"[BRIDGE] Selected active port: {target_port}")
-            run_hardware_listener(target_port, args.baud, target_url)
+            run_hardware_listener(target_port, args.baud, target_url, token=args.token)
         else:
             print("[NOTICE] No physical USB COM ports currently detected.")
             print("         Starting Pre-Hardware Virtual TDMA Mode (matching central_hub_esp32s3_v7.ino math)...")
-            run_prehardware_emulator(target_url, once=args.once)
+            run_prehardware_emulator(target_url, once=args.once, token=args.token)
