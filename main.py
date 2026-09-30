@@ -1237,7 +1237,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                         <span id="hw-live-text">AWAITING PHYSICAL HARDWARE (0.000 IDLE)</span>
                     </div>
                     <button type="button" id="btn-web-serial" onclick="toggleWebSerialConnection()" style="background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8; font-size: 0.78rem; font-weight: 700; padding: 4px 12px; border-radius: 16px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
-                        <span>🔌</span> <span id="btn-web-serial-text">Connect USB Hardware</span>
+                        <span id="btn-web-serial-text">Connect USB Hardware</span>
                     </button>
                     <span style="font-size: 0.82rem; color: #94a3b8;">
                         Hub: <strong style="color: #f1f5f9;">ESP32-S3 (central_hub_esp32s3_5)</strong> &bull;
@@ -1354,8 +1354,8 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                 <div class="chart-controls-toolbar">
                     <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
                         <span style="font-size: 0.74rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">Zoom:</span>
-                        <button type="button" class="chart-btn" onclick="zoomTrendChart(1.3, 'xy')" title="Zoom in both horizontally & vertically">🔍+ In</button>
-                        <button type="button" class="chart-btn" onclick="zoomTrendChart(0.75, 'xy')" title="Zoom out both axes">🔍- Out</button>
+                        <button type="button" class="chart-btn" onclick="zoomTrendChart(1.3, 'xy')" title="Zoom in both horizontally & vertically">+ In</button>
+                        <button type="button" class="chart-btn" onclick="zoomTrendChart(0.75, 'xy')" title="Zoom out both axes">- Out</button>
                         <button type="button" class="chart-btn" onclick="zoomTrendChart(1.4, 'y')" title="Vertical Zoom (magnify lower Tilt & Vibration curves)">↕ Vertical Zoom</button>
                         <button type="button" class="chart-btn" onclick="zoomTrendChart(1.4, 'x')" title="Horizontal Zoom (stretch time observations)">↔ Horizontal Zoom</button>
                         <button type="button" class="chart-btn" onclick="resetTrendChartZoom()" title="Reset chart view to 100%">↺ Reset Zoom</button>
