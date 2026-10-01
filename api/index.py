@@ -675,66 +675,132 @@ def start_hardware_serial_worker():
             import serial
             import serial.tools.list_ports
         except ImportError:
-            print("[HARDWARE THREAD] pyserial not available; hardware auto-polling skipped.")
+            print("[HARDWARE THREAD] pyserial not available; hardware auto-polling skipped.", flush=True)
             return
 
-        print("[HARDWARE THREAD] USB Hardware Auto-Detector thread started.")
+        print("[HARDWARE THREAD] USB Hardware Auto-Detector thread started.", flush=True)
         while True:
+            if serial_worker_paused:
+                time.sleep(0.5)
+                continue
             try:
-                ports = [p.device for p in serial.tools.list_ports.comports()]
-                if not ports:
+                all_com_ports = serial.tools.list_ports.comports()
+                if not all_com_ports:
                     time.sleep(2.0)
                     continue
 
-                # Prioritize COM7 or COM8 or any connected USB port
-                target_port = None
-                for p in ["COM7", "COM8"]:
-                    if p in ports:
-                        target_port = p
-                        break
-                if not target_port and ports:
-                    target_port = ports[0]
+                # Filter OUT all Bluetooth serial ports to prevent deadlocks
+                valid_ports = []
+                for p in all_com_ports:
+                    desc = (p.description or "").lower()
+                    hwid = (p.hwid or "").lower()
+                    dev = p.device
+                    if "bluetooth" in desc or "bthenum" in hwid or "standard serial over bluetooth" in desc:
+                        continue
+
+                    # Score priority: CH340, CH343, CP210, FTDI, ESP32 USB get highest preference
+                    score = 0
+                    if any(k in desc or k in hwid for k in ["ch340", "ch343", "cp210", "ftdi", "esp32", "usb", "wch"]):
+                        score += 10
+                    if dev in ["COM7", "COM8"]:
+                        score += 5
+                    valid_ports.append((score, dev, p.description))
+
+                if not valid_ports:
+                    time.sleep(2.0)
+                    continue
+
+                # Sort ports so highest scoring USB devices are tried first
+                valid_ports.sort(key=lambda x: x[0], reverse=True)
+                target_port = valid_ports[0][1]
 
                 ser = None
                 try:
                     ser = serial.Serial(target_port, baudrate=115200, timeout=1.0)
-                    print(f"[HARDWARE THREAD] Successfully opened {target_port} @ 115200 baud!")
+                    print(f"[HARDWARE THREAD] Successfully opened USB device {target_port} ({valid_ports[0][2]}) @ 115200 baud!", flush=True)
+                    last_valid_rx = time.time()
                     while True:
+                        if serial_worker_paused:
+                            break
+
+                        # Watchdog: If no valid packet is received on this port for 6s and other USB ports exist, rotate
+                        if time.time() - last_valid_rx > 6.0 and len(valid_ports) > 1:
+                            print(f"[HARDWARE THREAD] No data on {target_port} for 6s; rotating USB ports...", flush=True)
+                            break
+
                         if ser.in_waiting > 0:
                             raw_line = ser.readline().decode("utf-8", errors="ignore").strip()
                             if not raw_line:
                                 continue
 
-                            # Universal regex parser for all 3 firmwares
-                            node_m = re.search(r"NODE\s*(\d+)", raw_line, re.I)
-                            tilt_m = re.search(r"Tilt\s*[:=]\s*([+-]?\d+(?:\.\d+)?)", raw_line, re.I)
-                            vib_m = re.search(r"Vib\s*[:=]\s*([+-]?\d+(?:\.\d+)?)", raw_line, re.I)
-                            disp_m = re.search(r"Disp\s*[:=]\s*([+-]?\d+(?:\.\d+)?)", raw_line, re.I)
+                            print(f"[HW RX] {raw_line}", flush=True)
+                            parsed_packet = False
+                            nid_str = "NODE_01"
+                            tilt = 0.0
+                            vib = 0.0
+                            disp = 0.0
+                            filter_mode = "HARDWARE SENSOR"
 
-                            if tilt_m and (vib_m or disp_m):
-                                n_id = int(node_m.group(1)) if node_m else 1
-                                nid_str = f"NODE_0{n_id}"
-                                tilt = float(tilt_m.group(1))
-                                vib = float(vib_m.group(1)) if vib_m else 0.0
-                                disp = float(disp_m.group(1)) if disp_m else 0.0
+                            # 1. JSON Telemetry line from Central Hub (streamJsonToLaptopML)
+                            if raw_line.startswith("{") and raw_line.endswith("}"):
+                                try:
+                                    import json as _json
+                                    j = _json.loads(raw_line)
+                                    nid_raw = str(j.get("node_id", "1"))
+                                    n_id = 2 if "2" in nid_raw else 1
+                                    nid_str = f"NODE_0{n_id}"
+                                    tilt = float(j.get("filtered_tilt", 0.0))
+                                    vib = float(j.get("filtered_vibration", 0.0))
+                                    disp = float(j.get("filtered_displacement", 0.0))
+                                    filter_mode = "KALMAN FILTERED" if n_id == 1 else "DIGITAL OVERRIDE"
+                                    parsed_packet = True
+                                except Exception:
+                                    pass
 
-                                is_danger = (tilt >= 5.0 or vib >= 0.8 or disp >= 15.0)
-                                is_warning = (tilt >= 2.5 or vib >= 0.4 or disp >= 8.0)
+                            # 2. Universal regex parser for all firmwares (Hub, Node 1, Node 2)
+                            if not parsed_packet:
+                                node_m = re.search(r"NODE\s*(\d+)", raw_line, re.I)
+                                tilt_m = re.search(r"Tilt\s*[:=]\s*([+-]?\d+(?:\.\d+)?)", raw_line, re.I)
+                                vib_m = re.search(r"Vib(?:Peak)?\s*[:=]\s*([+-]?\d+(?:\.\d+)?)", raw_line, re.I)
+                                disp_m = re.search(r"Disp\s*[:=]\s*([+-]?\d+(?:\.\d+)?)", raw_line, re.I)
+
+                                if tilt_m and (vib_m or disp_m):
+                                    raw_upper = raw_line.upper()
+                                    if node_m:
+                                        n_id = int(node_m.group(1))
+                                    elif "SLOT 2" in raw_upper or "NODE 2" in raw_upper:
+                                        n_id = 2
+                                    else:
+                                        n_id = 1
+                                    nid_str = f"NODE_0{n_id}"
+                                    tilt = float(tilt_m.group(1))
+                                    vib = float(vib_m.group(1)) if vib_m else 0.0
+                                    disp = float(disp_m.group(1)) if disp_m else 0.0
+
+                                    if "KALMAN" in raw_upper:
+                                        filter_mode = "KALMAN FILTERED"
+                                    elif "OVERRIDE" in raw_upper or "DIGITAL" in raw_upper:
+                                        filter_mode = "DIGITAL OVERRIDE"
+                                    elif "SLOT 1" in raw_upper:
+                                        filter_mode = "NODE 1 DIRECT (Slot 1)"
+                                    elif "SLOT 2" in raw_upper:
+                                        filter_mode = "NODE 2 DIRECT (Slot 2)"
+                                    parsed_packet = True
+
+                            if parsed_packet:
+                                last_valid_rx = time.time()
+                                abs_tilt = abs(tilt)
+                                if nid_str == "NODE_02":
+                                    # Node 2: Digital trigger sensor (tilt >= 1.0 or vib >= 0.261 is DANGER)
+                                    is_danger = (abs_tilt >= 1.0 or vib >= 0.261 or disp >= 81.0)
+                                    is_warning = False
+                                else:
+                                    is_danger = (disp >= 81.0 or abs_tilt >= 3.801 or vib >= 0.261)
+                                    is_warning = (disp >= 41.0 or abs_tilt >= 2.01 or vib >= 0.201)
                                 status = "DANGER" if is_danger else ("WARNING" if is_warning else "SAFE")
 
                                 now_ts = time.time()
                                 formatted_time = time.strftime("%H:%M:%S")
-
-                                filter_mode = "HARDWARE SENSOR"
-                                raw_upper = raw_line.upper()
-                                if "KALMAN" in raw_upper:
-                                    filter_mode = "KALMAN FILTERED"
-                                elif "OVERRIDE" in raw_upper or "DIGITAL" in raw_upper:
-                                    filter_mode = "DIGITAL OVERRIDE"
-                                elif "SLOT 1" in raw_upper:
-                                    filter_mode = "NODE 1 DIRECT (Slot 1)"
-                                elif "SLOT 2" in raw_upper:
-                                    filter_mode = "NODE 2 DIRECT (Slot 2)"
 
                                 node_data = {
                                     "source": "ESP32_USB_DIRECT",
@@ -776,15 +842,16 @@ def start_hardware_serial_worker():
                                 })
                         else:
                             time.sleep(0.04)
-                except Exception:
-                    # Port may be busy (held by Web Serial in browser) or temporarily disconnected
+                except Exception as ex:
+                    print(f"[HARDWARE THREAD] Port notice on {target_port}: {ex}", flush=True)
                     time.sleep(2.0)
                 finally:
                     if ser and getattr(ser, "is_open", False):
                         try: ser.close()
                         except Exception: pass
 
-            except Exception:
+            except Exception as ex:
+                print(f"[HARDWARE THREAD] Outer error: {ex}", flush=True)
                 time.sleep(2.0)
 
     t = threading.Thread(target=worker, daemon=True)
@@ -2898,6 +2965,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             const nodeSelect = document.getElementById("live-node-selector");
             if (!nodeSelect) return;
             selectedNodeId = nodeSelect.value;
+            window._userManuallyPinnedNode = true;
 
             const site = MINING_SITES[selectedSiteKey];
             const node = site.nodes ? site.nodes.find(n => n.id === selectedNodeId) : null;
@@ -3169,10 +3237,14 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                 const nodeMatch = line.match(/NODE\s*(\d+)/i);
                 if (nodeMatch) {
                     nodeIdStr = "NODE_0" + parseInt(nodeMatch[1], 10);
+                } else if (/SLOT\s*2|NODE\s*2/i.test(line)) {
+                    nodeIdStr = "NODE_02";
+                } else {
+                    nodeIdStr = "NODE_01";
                 }
 
                 const tiltMatch = line.match(/Tilt\s*[:=]\s*([+-]?\d+(?:\.\d+)?)/i);
-                const vibMatch  = line.match(/Vib\s*[:=]\s*([+-]?\d+(?:\.\d+)?)/i);
+                const vibMatch  = line.match(/Vib(?:Peak)?\s*[:=]\s*([+-]?\d+(?:\.\d+)?)/i);
                 const dispMatch = line.match(/Disp\s*[:=]\s*([+-]?\d+(?:\.\d+)?)/i);
 
                 if (tiltMatch && (vibMatch || dispMatch)) {
@@ -3189,9 +3261,15 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             }
 
             if (parsed) {
-                const isDanger = (dispVal >= CRITICAL_DISPLACEMENT_THRESH_MM || Math.abs(tiltVal) >= CRITICAL_TILT_THRESH_DEG || vibVal >= CRITICAL_VIBRATION_THRESH_G);
-                const isWarning = (dispVal >= 8.0 || Math.abs(tiltVal) >= 2.5 || vibVal >= 0.4);
-                const statusVal = isDanger ? "DANGER" : (isWarning ? "WARNING" : "SAFE");
+                let statusVal = "SAFE";
+                if (nodeIdStr === "NODE_02") {
+                    const isDanger = (Math.abs(tiltVal) >= 1.0 || vibVal >= 0.261 || dispVal >= CRITICAL_DISPLACEMENT_THRESH_MM);
+                    statusVal = isDanger ? "DANGER" : "SAFE";
+                } else {
+                    const isDanger = (dispVal >= CRITICAL_DISPLACEMENT_THRESH_MM || Math.abs(tiltVal) >= CRITICAL_TILT_THRESH_DEG || vibVal >= CRITICAL_VIBRATION_THRESH_G);
+                    const isWarning = (dispVal >= WARNING_DISPLACEMENT_THRESH_MM || Math.abs(tiltVal) >= WARNING_TILT_THRESH_DEG || vibVal >= WARNING_VIBRATION_THRESH_G);
+                    statusVal = isDanger ? "DANGER" : (isWarning ? "WARNING" : "SAFE");
+                }
 
                 if (!liveHardwareData) {
                     liveHardwareData = { connected: true, source: "USB_HARDWARE", nodes: {} };
@@ -3277,11 +3355,27 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                             ? data.nodes[selectedNodeId]
                             : ((data.node_id === selectedNodeId) ? data : null);
 
+                        // Smart auto-selection: If Node 2 is the ONLY connected node and dashboard is currently on offline Node 1,
+                        // auto-switch to NODE_02 so the user immediately sees live tilt and vibration telemetry!
+                        const node2Active = Boolean(data.nodes && data.nodes["NODE_02"] && data.nodes["NODE_02"].connected);
+                        const node1Active = Boolean(data.nodes && data.nodes["NODE_01"] && data.nodes["NODE_01"].connected);
+                        if (node2Active && !node1Active && selectedNodeId === "NODE_01" && !window._userManuallyPinnedNode) {
+                            selectedNodeId = "NODE_02";
+                            const nSel = document.getElementById("live-node-selector");
+                            if (nSel) nSel.value = "NODE_02";
+                            onLiveNodeChange();
+                            window._userManuallyPinnedNode = false; // Reset pin flag for auto-detection
+                        }
+
                         if (activeNodeData && activeNodeData.connected !== false) {
                             const t = activeNodeData.tilt || 0;
                             const v = activeNodeData.vibration || 0;
                             const d = activeNodeData.displacement || 0;
-                            setHardwareBadgeActive(`LIVE HARDWARE (${selectedNodeId}): Tilt: ${t >= 0 ? '+' : ''}${t.toFixed(2)}° | Vib: ${v.toFixed(2)}g | Disp: ${d.toFixed(1)}mm`);
+                            if (selectedNodeId === "NODE_02") {
+                                setHardwareBadgeActive(`LIVE HARDWARE (NODE_02): Tilt: ${t >= 0 ? '+' : ''}${t.toFixed(2)}° | Vib: ${v.toFixed(2)}g | Disp: 0.0mm (Node 1 Offline)`);
+                            } else {
+                                setHardwareBadgeActive(`LIVE HARDWARE (${selectedNodeId}): Tilt: ${t >= 0 ? '+' : ''}${t.toFixed(2)}° | Vib: ${v.toFixed(2)}g | Disp: ${d.toFixed(1)}mm`);
+                            }
                         } else {
                             const activeNids = Object.keys(data.nodes || {}).filter(k => data.nodes[k] && data.nodes[k].connected);
                             if (activeNids.length > 0) {
@@ -4117,28 +4211,42 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             const payload = getSimulatedPayload();
             const currentBat = payload.battery !== undefined ? payload.battery : 100;
 
-            // Precise safety evaluation matching central_hub_esp32s3_v6.ino
+            const isHwLive = liveHardwareData && liveHardwareData.connected;
+            const activeNodeData = (liveHardwareData && liveHardwareData.nodes && liveHardwareData.nodes[selectedNodeId])
+                ? liveHardwareData.nodes[selectedNodeId]
+                : ((liveHardwareData && liveHardwareData.node_id === selectedNodeId) ? liveHardwareData : null);
+            const isThisNodeLive = isHwLive && activeNodeData && (activeNodeData.connected !== false);
+
+            // Precise safety evaluation matching central hub firmware & digital sensor characteristics
             let status = "SAFE";
             const tiltVal = parseFloat(payload.filtered_tilt || 0);
             const vibVal = parseFloat(payload.filtered_vibration || 0);
             const strainVal = parseFloat(payload.filtered_strain || 0);
 
-            // Critical thresholds: Disp >= 81mm, |Tilt| >= 3.801deg, Vib >= 0.261
-            const isCriticalBreached = (strainVal >= CRITICAL_DISPLACEMENT_THRESH_MM) ||
-                                       (Math.abs(tiltVal) >= CRITICAL_TILT_THRESH_DEG) ||
-                                       (vibVal >= CRITICAL_VIBRATION_THRESH_G);
-
-            // Warning thresholds: Disp >= 41mm, |Tilt| >= 2.01deg, Vib >= 0.201
-            const isWarningApproached = (strainVal >= WARNING_DISPLACEMENT_THRESH_MM) ||
-                                        (Math.abs(tiltVal) >= WARNING_TILT_THRESH_DEG) ||
-                                        (vibVal >= WARNING_VIBRATION_THRESH_G);
-
-            if (isCriticalBreached) {
-                status = "DANGER";
-            } else if (isWarningApproached) {
-                status = "WARNING";
+            if (isThisNodeLive && activeNodeData && activeNodeData.status) {
+                status = activeNodeData.status;
+            } else if (selectedNodeId === "NODE_02") {
+                // Node 2 Digital Sensor thresholds (tilt >= 1.0 or vib >= 0.261 is DANGER)
+                const isDanger = (Math.abs(tiltVal) >= 1.0 || vibVal >= 0.261 || strainVal >= CRITICAL_DISPLACEMENT_THRESH_MM);
+                status = isDanger ? "DANGER" : "SAFE";
             } else {
-                status = "SAFE";
+                // Critical thresholds: Disp >= 81mm, |Tilt| >= 3.801deg, Vib >= 0.261
+                const isCriticalBreached = (strainVal >= CRITICAL_DISPLACEMENT_THRESH_MM) ||
+                                           (Math.abs(tiltVal) >= CRITICAL_TILT_THRESH_DEG) ||
+                                           (vibVal >= CRITICAL_VIBRATION_THRESH_G);
+
+                // Warning thresholds: Disp >= 41mm, |Tilt| >= 2.01deg, Vib >= 0.201
+                const isWarningApproached = (strainVal >= WARNING_DISPLACEMENT_THRESH_MM) ||
+                                            (Math.abs(tiltVal) >= WARNING_TILT_THRESH_DEG) ||
+                                            (vibVal >= WARNING_VIBRATION_THRESH_G);
+
+                if (isCriticalBreached) {
+                    status = "DANGER";
+                } else if (isWarningApproached) {
+                    status = "WARNING";
+                } else {
+                    status = "SAFE";
+                }
             }
 
             // =========================================================================
@@ -4250,8 +4358,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             const elVib = document.getElementById("val-vib");
             const elStrain = document.getElementById("val-strain");
 
-            const isHwLive = liveHardwareData && liveHardwareData.connected;
-            const isSimZero = (!isHwLive && (activeSimMode === "dynamic" || activeSimMode === "safe"));
+            const isSimZero = (!isThisNodeLive && (activeSimMode === "dynamic" || activeSimMode === "safe"));
 
             const displayTilt = isSimZero ? 0.0 : tiltVal;
             const displayVib = isSimZero ? 0.0 : vibVal;
@@ -4266,11 +4373,18 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             const rawS = (payload.raw_strain !== undefined) ? payload.raw_strain : strainVal;
 
             const subT = document.getElementById("sub-tilt");
-            if (subT) subT.textContent = isHwLive ? `Raw: ${rawT.toFixed(3)}° • Real Hardware` : (activeSimMode === "manual" ? `Raw: ${rawT.toFixed(2)}° • Manual Input` : (isSimZero ? `Raw: 0.000° • Standby (0.000)` : `Raw: ${rawT.toFixed(2)}° • Filtered`));
             const subV = document.getElementById("sub-vib");
-            if (subV) subV.textContent = isHwLive ? `Raw: ${rawV.toFixed(3)}g • Real Hardware` : (activeSimMode === "manual" ? `Raw: ${rawV.toFixed(3)}g • Manual Input` : (isSimZero ? `Raw: 0.000g • Standby (0.000)` : `Raw: ${rawV.toFixed(2)}g • Dynamic`));
             const subS = document.getElementById("sub-strain");
-            if (subS) subS.textContent = isHwLive ? `Raw: ${rawS.toFixed(3)}mm • Real Hardware` : (activeSimMode === "manual" ? `Raw: ${rawS.toFixed(1)}mm • Manual Input` : (isSimZero ? `Raw: 0.000mm • Standby (0.000)` : `Raw: ${rawS.toFixed(1)}mm • Subsidence`));
+
+            if (selectedNodeId === "NODE_02") {
+                if (subT) subT.textContent = isThisNodeLive ? `Raw: ${rawT.toFixed(2)}° • SW-520D Tilt (Node 2 Live)` : (isSimZero ? `Raw: 0.000° • Standby (0.000)` : `Raw: ${rawT.toFixed(2)}° • Node 2`);
+                if (subV) subV.textContent = isThisNodeLive ? `Raw: ${rawV.toFixed(2)}g • SW-420 Shock (Node 2 Live)` : (isSimZero ? `Raw: 0.000g • Standby (0.000)` : `Raw: ${rawV.toFixed(2)}g • Node 2`);
+                if (subS) subS.textContent = `0.000 mm • Ultrasonic on Node 1 (Offline)`;
+            } else {
+                if (subT) subT.textContent = isThisNodeLive ? `Raw: ${rawT.toFixed(3)}° • Real Hardware (Node 1)` : (activeSimMode === "manual" ? `Raw: ${rawT.toFixed(2)}° • Manual Input` : (isSimZero ? `Raw: 0.000° • Standby / Node 1 Offline` : `Raw: ${rawT.toFixed(2)}° • Filtered`));
+                if (subV) subV.textContent = isThisNodeLive ? `Raw: ${rawV.toFixed(3)}g • Real Hardware (Node 1)` : (activeSimMode === "manual" ? `Raw: ${rawV.toFixed(3)}g • Manual Input` : (isSimZero ? `Raw: 0.000g • Standby / Node 1 Offline` : `Raw: ${rawV.toFixed(2)}g • Dynamic`));
+                if (subS) subS.textContent = isThisNodeLive ? `Raw: ${rawS.toFixed(3)}mm • HC-SR04 Hardware` : (activeSimMode === "manual" ? `Raw: ${rawS.toFixed(1)}mm • Manual Input` : (isSimZero ? `Raw: 0.000mm • Standby / Node 1 Offline` : `Raw: ${rawS.toFixed(1)}mm • Subsidence`));
+            }
             document.getElementById("last-updated").textContent = "Last Sync: " + timeStr;
 
             if (status === "SAFE") safeCount++;

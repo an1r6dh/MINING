@@ -2089,6 +2089,7 @@
             const nodeSelect = document.getElementById("live-node-selector");
             if (!nodeSelect) return;
             selectedNodeId = nodeSelect.value;
+            window._userManuallyPinnedNode = true;
 
             const site = MINING_SITES[selectedSiteKey];
             const node = site.nodes ? site.nodes.find(n => n.id === selectedNodeId) : null;
@@ -2360,10 +2361,14 @@
                 const nodeMatch = line.match(/NODE\s*(\d+)/i);
                 if (nodeMatch) {
                     nodeIdStr = "NODE_0" + parseInt(nodeMatch[1], 10);
+                } else if (/SLOT\s*2|NODE\s*2/i.test(line)) {
+                    nodeIdStr = "NODE_02";
+                } else {
+                    nodeIdStr = "NODE_01";
                 }
 
                 const tiltMatch = line.match(/Tilt\s*[:=]\s*([+-]?\d+(?:\.\d+)?)/i);
-                const vibMatch  = line.match(/Vib\s*[:=]\s*([+-]?\d+(?:\.\d+)?)/i);
+                const vibMatch  = line.match(/Vib(?:Peak)?\s*[:=]\s*([+-]?\d+(?:\.\d+)?)/i);
                 const dispMatch = line.match(/Disp\s*[:=]\s*([+-]?\d+(?:\.\d+)?)/i);
 
                 if (tiltMatch && (vibMatch || dispMatch)) {
@@ -2380,9 +2385,15 @@
             }
 
             if (parsed) {
-                const isDanger = (dispVal >= CRITICAL_DISPLACEMENT_THRESH_MM || Math.abs(tiltVal) >= CRITICAL_TILT_THRESH_DEG || vibVal >= CRITICAL_VIBRATION_THRESH_G);
-                const isWarning = (dispVal >= 8.0 || Math.abs(tiltVal) >= 2.5 || vibVal >= 0.4);
-                const statusVal = isDanger ? "DANGER" : (isWarning ? "WARNING" : "SAFE");
+                let statusVal = "SAFE";
+                if (nodeIdStr === "NODE_02") {
+                    const isDanger = (Math.abs(tiltVal) >= 1.0 || vibVal >= 0.261 || dispVal >= CRITICAL_DISPLACEMENT_THRESH_MM);
+                    statusVal = isDanger ? "DANGER" : "SAFE";
+                } else {
+                    const isDanger = (dispVal >= CRITICAL_DISPLACEMENT_THRESH_MM || Math.abs(tiltVal) >= CRITICAL_TILT_THRESH_DEG || vibVal >= CRITICAL_VIBRATION_THRESH_G);
+                    const isWarning = (dispVal >= WARNING_DISPLACEMENT_THRESH_MM || Math.abs(tiltVal) >= WARNING_TILT_THRESH_DEG || vibVal >= WARNING_VIBRATION_THRESH_G);
+                    statusVal = isDanger ? "DANGER" : (isWarning ? "WARNING" : "SAFE");
+                }
 
                 if (!liveHardwareData) {
                     liveHardwareData = { connected: true, source: "USB_HARDWARE", nodes: {} };
@@ -2468,11 +2479,27 @@
                             ? data.nodes[selectedNodeId]
                             : ((data.node_id === selectedNodeId) ? data : null);
 
+                        // Smart auto-selection: If Node 2 is the ONLY connected node and dashboard is currently on offline Node 1,
+                        // auto-switch to NODE_02 so the user immediately sees live tilt and vibration telemetry!
+                        const node2Active = Boolean(data.nodes && data.nodes["NODE_02"] && data.nodes["NODE_02"].connected);
+                        const node1Active = Boolean(data.nodes && data.nodes["NODE_01"] && data.nodes["NODE_01"].connected);
+                        if (node2Active && !node1Active && selectedNodeId === "NODE_01" && !window._userManuallyPinnedNode) {
+                            selectedNodeId = "NODE_02";
+                            const nSel = document.getElementById("live-node-selector");
+                            if (nSel) nSel.value = "NODE_02";
+                            onLiveNodeChange();
+                            window._userManuallyPinnedNode = false; // Reset pin flag for auto-detection
+                        }
+
                         if (activeNodeData && activeNodeData.connected !== false) {
                             const t = activeNodeData.tilt || 0;
                             const v = activeNodeData.vibration || 0;
                             const d = activeNodeData.displacement || 0;
-                            setHardwareBadgeActive(`LIVE HARDWARE (${selectedNodeId}): Tilt: ${t >= 0 ? '+' : ''}${t.toFixed(2)}° | Vib: ${v.toFixed(2)}g | Disp: ${d.toFixed(1)}mm`);
+                            if (selectedNodeId === "NODE_02") {
+                                setHardwareBadgeActive(`LIVE HARDWARE (NODE_02): Tilt: ${t >= 0 ? '+' : ''}${t.toFixed(2)}° | Vib: ${v.toFixed(2)}g | Disp: 0.0mm (Node 1 Offline)`);
+                            } else {
+                                setHardwareBadgeActive(`LIVE HARDWARE (${selectedNodeId}): Tilt: ${t >= 0 ? '+' : ''}${t.toFixed(2)}° | Vib: ${v.toFixed(2)}g | Disp: ${d.toFixed(1)}mm`);
+                            }
                         } else {
                             const activeNids = Object.keys(data.nodes || {}).filter(k => data.nodes[k] && data.nodes[k].connected);
                             if (activeNids.length > 0) {
@@ -3308,28 +3335,42 @@
             const payload = getSimulatedPayload();
             const currentBat = payload.battery !== undefined ? payload.battery : 100;
 
-            // Precise safety evaluation matching central_hub_esp32s3_v6.ino
+            const isHwLive = liveHardwareData && liveHardwareData.connected;
+            const activeNodeData = (liveHardwareData && liveHardwareData.nodes && liveHardwareData.nodes[selectedNodeId])
+                ? liveHardwareData.nodes[selectedNodeId]
+                : ((liveHardwareData && liveHardwareData.node_id === selectedNodeId) ? liveHardwareData : null);
+            const isThisNodeLive = isHwLive && activeNodeData && (activeNodeData.connected !== false);
+
+            // Precise safety evaluation matching central hub firmware & digital sensor characteristics
             let status = "SAFE";
             const tiltVal = parseFloat(payload.filtered_tilt || 0);
             const vibVal = parseFloat(payload.filtered_vibration || 0);
             const strainVal = parseFloat(payload.filtered_strain || 0);
 
-            // Critical thresholds: Disp >= 81mm, |Tilt| >= 3.801deg, Vib >= 0.261
-            const isCriticalBreached = (strainVal >= CRITICAL_DISPLACEMENT_THRESH_MM) ||
-                                       (Math.abs(tiltVal) >= CRITICAL_TILT_THRESH_DEG) ||
-                                       (vibVal >= CRITICAL_VIBRATION_THRESH_G);
-
-            // Warning thresholds: Disp >= 41mm, |Tilt| >= 2.01deg, Vib >= 0.201
-            const isWarningApproached = (strainVal >= WARNING_DISPLACEMENT_THRESH_MM) ||
-                                        (Math.abs(tiltVal) >= WARNING_TILT_THRESH_DEG) ||
-                                        (vibVal >= WARNING_VIBRATION_THRESH_G);
-
-            if (isCriticalBreached) {
-                status = "DANGER";
-            } else if (isWarningApproached) {
-                status = "WARNING";
+            if (isThisNodeLive && activeNodeData && activeNodeData.status) {
+                status = activeNodeData.status;
+            } else if (selectedNodeId === "NODE_02") {
+                // Node 2 Digital Sensor thresholds (tilt >= 1.0 or vib >= 0.261 is DANGER)
+                const isDanger = (Math.abs(tiltVal) >= 1.0 || vibVal >= 0.261 || strainVal >= CRITICAL_DISPLACEMENT_THRESH_MM);
+                status = isDanger ? "DANGER" : "SAFE";
             } else {
-                status = "SAFE";
+                // Critical thresholds: Disp >= 81mm, |Tilt| >= 3.801deg, Vib >= 0.261
+                const isCriticalBreached = (strainVal >= CRITICAL_DISPLACEMENT_THRESH_MM) ||
+                                           (Math.abs(tiltVal) >= CRITICAL_TILT_THRESH_DEG) ||
+                                           (vibVal >= CRITICAL_VIBRATION_THRESH_G);
+
+                // Warning thresholds: Disp >= 41mm, |Tilt| >= 2.01deg, Vib >= 0.201
+                const isWarningApproached = (strainVal >= WARNING_DISPLACEMENT_THRESH_MM) ||
+                                            (Math.abs(tiltVal) >= WARNING_TILT_THRESH_DEG) ||
+                                            (vibVal >= WARNING_VIBRATION_THRESH_G);
+
+                if (isCriticalBreached) {
+                    status = "DANGER";
+                } else if (isWarningApproached) {
+                    status = "WARNING";
+                } else {
+                    status = "SAFE";
+                }
             }
 
             // =========================================================================
@@ -3441,8 +3482,7 @@
             const elVib = document.getElementById("val-vib");
             const elStrain = document.getElementById("val-strain");
 
-            const isHwLive = liveHardwareData && liveHardwareData.connected;
-            const isSimZero = (!isHwLive && (activeSimMode === "dynamic" || activeSimMode === "safe"));
+            const isSimZero = (!isThisNodeLive && (activeSimMode === "dynamic" || activeSimMode === "safe"));
 
             const displayTilt = isSimZero ? 0.0 : tiltVal;
             const displayVib = isSimZero ? 0.0 : vibVal;
@@ -3457,11 +3497,18 @@
             const rawS = (payload.raw_strain !== undefined) ? payload.raw_strain : strainVal;
 
             const subT = document.getElementById("sub-tilt");
-            if (subT) subT.textContent = isHwLive ? `Raw: ${rawT.toFixed(3)}° • Real Hardware` : (activeSimMode === "manual" ? `Raw: ${rawT.toFixed(2)}° • Manual Input` : (isSimZero ? `Raw: 0.000° • Standby (0.000)` : `Raw: ${rawT.toFixed(2)}° • Filtered`));
             const subV = document.getElementById("sub-vib");
-            if (subV) subV.textContent = isHwLive ? `Raw: ${rawV.toFixed(3)}g • Real Hardware` : (activeSimMode === "manual" ? `Raw: ${rawV.toFixed(3)}g • Manual Input` : (isSimZero ? `Raw: 0.000g • Standby (0.000)` : `Raw: ${rawV.toFixed(2)}g • Dynamic`));
             const subS = document.getElementById("sub-strain");
-            if (subS) subS.textContent = isHwLive ? `Raw: ${rawS.toFixed(3)}mm • Real Hardware` : (activeSimMode === "manual" ? `Raw: ${rawS.toFixed(1)}mm • Manual Input` : (isSimZero ? `Raw: 0.000mm • Standby (0.000)` : `Raw: ${rawS.toFixed(1)}mm • Subsidence`));
+
+            if (selectedNodeId === "NODE_02") {
+                if (subT) subT.textContent = isThisNodeLive ? `Raw: ${rawT.toFixed(2)}° • SW-520D Tilt (Node 2 Live)` : (isSimZero ? `Raw: 0.000° • Standby (0.000)` : `Raw: ${rawT.toFixed(2)}° • Node 2`);
+                if (subV) subV.textContent = isThisNodeLive ? `Raw: ${rawV.toFixed(2)}g • SW-420 Shock (Node 2 Live)` : (isSimZero ? `Raw: 0.000g • Standby (0.000)` : `Raw: ${rawV.toFixed(2)}g • Node 2`);
+                if (subS) subS.textContent = `0.000 mm • Ultrasonic on Node 1 (Offline)`;
+            } else {
+                if (subT) subT.textContent = isThisNodeLive ? `Raw: ${rawT.toFixed(3)}° • Real Hardware (Node 1)` : (activeSimMode === "manual" ? `Raw: ${rawT.toFixed(2)}° • Manual Input` : (isSimZero ? `Raw: 0.000° • Standby / Node 1 Offline` : `Raw: ${rawT.toFixed(2)}° • Filtered`));
+                if (subV) subV.textContent = isThisNodeLive ? `Raw: ${rawV.toFixed(3)}g • Real Hardware (Node 1)` : (activeSimMode === "manual" ? `Raw: ${rawV.toFixed(3)}g • Manual Input` : (isSimZero ? `Raw: 0.000g • Standby / Node 1 Offline` : `Raw: ${rawV.toFixed(2)}g • Dynamic`));
+                if (subS) subS.textContent = isThisNodeLive ? `Raw: ${rawS.toFixed(3)}mm • HC-SR04 Hardware` : (activeSimMode === "manual" ? `Raw: ${rawS.toFixed(1)}mm • Manual Input` : (isSimZero ? `Raw: 0.000mm • Standby / Node 1 Offline` : `Raw: ${rawS.toFixed(1)}mm • Subsidence`));
+            }
             document.getElementById("last-updated").textContent = "Last Sync: " + timeStr;
 
             if (status === "SAFE") safeCount++;

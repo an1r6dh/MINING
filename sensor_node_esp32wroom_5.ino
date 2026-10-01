@@ -279,6 +279,22 @@ void loop() {
             }
         }
     }
+
+    // AUTONOMOUS DIRECT USB SERIAL TELEMETRY (When Node 2 is connected directly via USB without Hub beacon)
+    static uint32_t lastDirectUsbTx = 0;
+    if (!beaconReceived && (now - lastDirectUsbTx >= 500)) {
+        lastDirectUsbTx = now;
+        int tiltState = digitalRead(PIN_DIGITAL_TILT);
+        float directTilt = (tiltState == SENSOR_TRIGGER_LEVEL) ? 1.0f : 0.0f;
+        noInterrupts();
+        bool curVib = vibrationLatched;
+        vibrationLatched = false;
+        interrupts();
+        float directVib = curVib ? 1.0f : 0.0f;
+        Serial.printf("[NODE 2 TX SLOT 2] Digital Telemetry: Tilt=%04.1f (%s) | Vib=%04.1f (%s) | Disp=0.0mm\n",
+                      directTilt, (directTilt > 0.0f ? "TILT TRIGGERED" : "UPRIGHT"),
+                      directVib, (directVib > 0.0f ? "LATCHED VIB" : "CALM"));
+    }
 }
 
 

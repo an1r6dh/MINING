@@ -51,8 +51,12 @@ def parse_telemetry_line(raw_line):
             filter_mode = "KALMAN FILTERED" if n_id == 1 else "DIGITAL OVERRIDE"
 
             abs_tilt = abs(tilt)
-            is_danger = (disp >= 81.0 or abs_tilt >= 3.801 or vib >= 0.261)
-            is_warning = (disp >= 41.0 or abs_tilt >= 2.01 or vib >= 0.201)
+            if n_id == 2:
+                is_danger = (abs_tilt >= 1.0 or vib >= 0.261 or disp >= 81.0)
+                is_warning = False
+            else:
+                is_danger = (disp >= 81.0 or abs_tilt >= 3.801 or vib >= 0.261)
+                is_warning = (disp >= 41.0 or abs_tilt >= 2.01 or vib >= 0.201)
             status = "DANGER" if is_danger else ("WARNING" if is_warning else "SAFE")
 
             return {
@@ -75,18 +79,27 @@ def parse_telemetry_line(raw_line):
     disp_m = re.search(r"Disp\s*[:=]\s*([+-]?\d+(?:\.\d+)?)", raw_line, re.I)
 
     if tilt_m and (vib_m or disp_m):
-        node_id = int(node_m.group(1)) if node_m else 1
+        raw_upper = raw_line.upper()
+        if node_m:
+            node_id = int(node_m.group(1))
+        elif "SLOT 2" in raw_upper or "NODE 2" in raw_upper:
+            node_id = 2
+        else:
+            node_id = 1
         tilt = float(tilt_m.group(1))
         vib = float(vib_m.group(1)) if vib_m else 0.0
         disp = float(disp_m.group(1)) if disp_m else 0.0
 
         abs_tilt = abs(tilt)
-        is_danger = (disp >= 81.0 or abs_tilt >= 3.801 or vib >= 0.261)
-        is_warning = (disp >= 41.0 or abs_tilt >= 2.01 or vib >= 0.201)
+        if node_id == 2:
+            is_danger = (abs_tilt >= 1.0 or vib >= 0.261 or disp >= 81.0)
+            is_warning = False
+        else:
+            is_danger = (disp >= 81.0 or abs_tilt >= 3.801 or vib >= 0.261)
+            is_warning = (disp >= 41.0 or abs_tilt >= 2.01 or vib >= 0.201)
         status = "DANGER" if is_danger else ("WARNING" if is_warning else "SAFE")
 
         filter_type = "HARDWARE SENSOR"
-        raw_upper = raw_line.upper()
         if "KALMAN" in raw_upper:
             filter_type = "KALMAN FILTERED"
         elif "OVERRIDE" in raw_upper or "DIGITAL" in raw_upper:
@@ -140,10 +153,17 @@ def post_telemetry_to_dashboard(payload, target_url="http://127.0.0.1:8000/api/h
         return False
 
 def list_available_ports():
-    """Returns a list of all detected COM ports."""
+    """Returns a list of all detected COM ports, excluding Bluetooth phantom ports."""
     if not HAS_SERIAL:
         return []
-    return [port.device for port in serial.tools.list_ports.comports()]
+    valid_ports = []
+    for port in serial.tools.list_ports.comports():
+        desc = (port.description or "").lower()
+        hwid = (port.hwid or "").lower()
+        if "bthenum" in hwid or "bluetooth" in desc or "bluetooth" in hwid:
+            continue
+        valid_ports.append(port.device)
+    return valid_ports
 
 def run_hardware_listener(port, baudrate=115200, target_url="http://127.0.0.1:8000/api/hardware_telemetry", token=None):
     """Reads live serial data from the physical ESP32-S3 Central Hub."""

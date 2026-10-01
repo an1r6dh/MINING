@@ -28,3 +28,12 @@ sensor_data.csv
 # Vercel & Scratch
 .vercel/
 scratch/
+out.txt
+find_locking_process.py
+find_serial2.py
+check_handle_com7.py
+scan_serial_handle.py
+enum_windows.py
+get_proc_titles.py
+scratch_read_com7.py
+test_com7.py
