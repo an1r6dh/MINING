@@ -429,14 +429,16 @@ void processIncomingData(const SensorPayload& payload) {
     }
 
     Serial.printf("[NODE %d %s] Tilt: %+05.2f deg | Vib: %04.2f g | Disp: %05.1f mm\n",
-                  id, (id == 2 ? "DIGITAL OVERRIDE" : "KALMAN FILTERED"),
+                  id, (id == 2 ? "MPU6050 SENSOR" : "KALMAN FILTERED"),
                   nodes[id].filtered_tilt, nodes[id].filtered_vibration, nodes[id].filtered_displacement);
 
     // Multi-criteria safety limit evaluation strictly centralized on Hub:
     bool isBreached = false;
     if (id == 2) {
-        // Evaluate threshold breach directly for Node 2 digital state
-        isBreached = (nodes[id].filtered_tilt >= 1.0f) || (nodes[id].filtered_vibration >= 1.0f);
+        // Evaluate threshold breach for Node 2 (supports both MPU6050 continuous and digital states)
+        isBreached = (fabs(nodes[id].filtered_tilt) >= CRITICAL_TILT_THRESH_DEG) ||
+                     (nodes[id].filtered_vibration >= CRITICAL_VIBRATION_THRESH_G) ||
+                     (nodes[id].filtered_displacement >= CRITICAL_DISPLACEMENT_THRESH_MM);
     } else {
         isBreached = (fabs(nodes[id].filtered_tilt) >= CRITICAL_TILT_THRESH_DEG) ||
                      (nodes[id].filtered_displacement >= CRITICAL_DISPLACEMENT_THRESH_MM) ||
