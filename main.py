@@ -722,9 +722,9 @@ def start_hardware_serial_worker():
                         if serial_worker_paused:
                             break
 
-                        # Watchdog: If no valid packet is received on this port for 6s and other USB ports exist, rotate
-                        if time.time() - last_valid_rx > 6.0 and len(valid_ports) > 1:
-                            print(f"[HARDWARE THREAD] No data on {target_port} for 6s; rotating USB ports...", flush=True)
+                        # Watchdog: If no valid packet is received on this port for 8s, reconnect / rotate
+                        if time.time() - last_valid_rx > 8.0:
+                            print(f"[HARDWARE THREAD] No data on {target_port} for 8s; refreshing USB connection...", flush=True)
                             break
 
                         if ser.in_waiting > 0:
@@ -751,7 +751,7 @@ def start_hardware_serial_worker():
                                     tilt = float(j.get("filtered_tilt", 0.0))
                                     vib = float(j.get("filtered_vibration", 0.0))
                                     disp = float(j.get("filtered_displacement", 0.0))
-                                    filter_mode = "KALMAN FILTERED" if n_id == 1 else "DIGITAL OVERRIDE"
+                                    filter_mode = "KALMAN FILTERED" if n_id == 1 else "MPU6050 SENSOR"
                                     parsed_packet = True
                                 except Exception:
                                     pass
@@ -778,6 +778,8 @@ def start_hardware_serial_worker():
 
                                     if "KALMAN" in raw_upper:
                                         filter_mode = "KALMAN FILTERED"
+                                    elif "MPU6050" in raw_upper:
+                                        filter_mode = "MPU6050 SENSOR"
                                     elif "OVERRIDE" in raw_upper or "DIGITAL" in raw_upper:
                                         filter_mode = "DIGITAL OVERRIDE"
                                     elif "SLOT 1" in raw_upper:
@@ -789,13 +791,8 @@ def start_hardware_serial_worker():
                             if parsed_packet:
                                 last_valid_rx = time.time()
                                 abs_tilt = abs(tilt)
-                                if nid_str == "NODE_02":
-                                    # Node 2: Digital trigger sensor (tilt >= 1.0 or vib >= 0.261 is DANGER)
-                                    is_danger = (abs_tilt >= 1.0 or vib >= 0.261 or disp >= 81.0)
-                                    is_warning = False
-                                else:
-                                    is_danger = (disp >= 81.0 or abs_tilt >= 3.801 or vib >= 0.261)
-                                    is_warning = (disp >= 41.0 or abs_tilt >= 2.01 or vib >= 0.201)
+                                is_danger = (disp >= 81.0 or abs_tilt >= 3.801 or vib >= 0.261)
+                                is_warning = (disp >= 41.0 or abs_tilt >= 2.01 or vib >= 0.201)
                                 status = "DANGER" if is_danger else ("WARNING" if is_warning else "SAFE")
 
                                 now_ts = time.time()
@@ -1315,7 +1312,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                         Hub: <strong style="color: #f1f5f9;">ESP32-S3 (central_hub_esp32s3_5)</strong> &bull;
                         RF: <strong style="color: #c084fc;">Wi-Fi Ch 1 (ESP-NOW)</strong> &bull;
                         Slot 1: <strong style="color: #38bdf8;">Node 1 (MPU6050 + HC-SR04)</strong> &bull;
-                        Slot 2: <strong style="color: #f59e0b;">Node 2 (SW-420 Tripwire)</strong>
+                        Slot 2: <strong style="color: #f59e0b;">Node 2 (MPU6050 IMU)</strong>
                     </span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 12px; font-size: 0.78rem; color: #94a3b8;">
@@ -1835,11 +1832,11 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                     },
                     {
                         "id": "NODE_02",
-                        "name": "ESP32 Node 2 — SW-420 Tripwire Digital Latch",
+                        "name": "Sensor Node 2 — MPU-6050 Surface / Slope IMU",
                         "relLat": -0.002,
                         "relLng": 0.0015,
                         "active": false,
-                        "type": "Discrete Tripwire Node (TDMA Slot 2)",
+                        "type": "6-DOF IMU Telemetry (TDMA Slot 2)",
                         "tilt": 0.0,
                         "vib": 0.0,
                         "strain": 0.0,
@@ -3222,7 +3219,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                     tiltVal = parseFloat(j.filtered_tilt || 0);
                     vibVal = parseFloat(j.filtered_vibration || 0);
                     dispVal = parseFloat(j.filtered_displacement || 0);
-                    filterMode = (nId === 1) ? "KALMAN FILTERED" : "DIGITAL OVERRIDE";
+                    filterMode = (nId === 1) ? "KALMAN FILTERED" : "MPU6050 SENSOR";
                     parsed = true;
                 } catch(e) {}
             }
@@ -3248,6 +3245,7 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                     dispVal = dispMatch ? parseFloat(dispMatch[1]) : 0.0;
 
                     if (/KALMAN/i.test(line)) filterMode = "KALMAN FILTERED";
+                    else if (/MPU6050/i.test(line)) filterMode = "MPU6050 SENSOR";
                     else if (/OVERRIDE|DIGITAL/i.test(line)) filterMode = "DIGITAL OVERRIDE";
                     else if (/SLOT\s*1/i.test(line)) filterMode = "NODE 1 DIRECT (Slot 1)";
                     else if (/SLOT\s*2/i.test(line)) filterMode = "NODE 2 DIRECT (Slot 2)";
@@ -3257,14 +3255,9 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
 
             if (parsed) {
                 let statusVal = "SAFE";
-                if (nodeIdStr === "NODE_02") {
-                    const isDanger = (Math.abs(tiltVal) >= 1.0 || vibVal >= 0.261 || dispVal >= CRITICAL_DISPLACEMENT_THRESH_MM);
-                    statusVal = isDanger ? "DANGER" : "SAFE";
-                } else {
-                    const isDanger = (dispVal >= CRITICAL_DISPLACEMENT_THRESH_MM || Math.abs(tiltVal) >= CRITICAL_TILT_THRESH_DEG || vibVal >= CRITICAL_VIBRATION_THRESH_G);
-                    const isWarning = (dispVal >= WARNING_DISPLACEMENT_THRESH_MM || Math.abs(tiltVal) >= WARNING_TILT_THRESH_DEG || vibVal >= WARNING_VIBRATION_THRESH_G);
-                    statusVal = isDanger ? "DANGER" : (isWarning ? "WARNING" : "SAFE");
-                }
+                const isDanger = (dispVal >= CRITICAL_DISPLACEMENT_THRESH_MM || Math.abs(tiltVal) >= CRITICAL_TILT_THRESH_DEG || vibVal >= CRITICAL_VIBRATION_THRESH_G);
+                const isWarning = (dispVal >= WARNING_DISPLACEMENT_THRESH_MM || Math.abs(tiltVal) >= WARNING_TILT_THRESH_DEG || vibVal >= WARNING_VIBRATION_THRESH_G);
+                statusVal = isDanger ? "DANGER" : (isWarning ? "WARNING" : "SAFE");
 
                 if (!liveHardwareData) {
                     liveHardwareData = { connected: true, source: "USB_HARDWARE", nodes: {} };
@@ -4221,9 +4214,10 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             if (isThisNodeLive && activeNodeData && activeNodeData.status) {
                 status = activeNodeData.status;
             } else if (selectedNodeId === "NODE_02") {
-                // Node 2 Digital Sensor thresholds (tilt >= 1.0 or vib >= 0.261 is DANGER)
-                const isDanger = (Math.abs(tiltVal) >= 1.0 || vibVal >= 0.261 || strainVal >= CRITICAL_DISPLACEMENT_THRESH_MM);
-                status = isDanger ? "DANGER" : "SAFE";
+                // Node 2 MPU-6050 Continuous IMU thresholds (tilt >= 3.801 or vib >= 0.261 is DANGER)
+                const isDanger = (Math.abs(tiltVal) >= CRITICAL_TILT_THRESH_DEG || vibVal >= CRITICAL_VIBRATION_THRESH_G || strainVal >= CRITICAL_DISPLACEMENT_THRESH_MM);
+                const isWarning = (Math.abs(tiltVal) >= WARNING_TILT_THRESH_DEG || vibVal >= WARNING_VIBRATION_THRESH_G || strainVal >= WARNING_DISPLACEMENT_THRESH_MM);
+                status = isDanger ? "DANGER" : (isWarning ? "WARNING" : "SAFE");
             } else {
                 // Critical thresholds: Disp >= 81mm, |Tilt| >= 3.801deg, Vib >= 0.261
                 const isCriticalBreached = (strainVal >= CRITICAL_DISPLACEMENT_THRESH_MM) ||
@@ -4318,8 +4312,8 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
                     lastDangerNodeState = "NODE_02";
                     lastDangerAlertTimestamp = nowTs;
                     lastAlertEmailLevel = "DANGER";
-                    const n2Msg = "DANGER ALERT: Alert: you have to move from that current site! Perimeter tripwire hazard and high vibration triggered on NODE_02 (SW-420 Tripwire Digital Latch).";
-                    dispatchEmergencyAlertEmail("DANGER", node02Obj.tilt, node02Obj.vib, node02Obj.strain, null, "NODE_02 (SW-420 Tripwire Digital Latch)", n2Msg);
+                    const n2Msg = "DANGER ALERT: Alert: you have to move from that current site! Slope instability / high vibration triggered on NODE_02 (MPU-6050 Surface / Slope IMU).";
+                    dispatchEmergencyAlertEmail("DANGER", node02Obj.tilt, node02Obj.vib, node02Obj.strain, null, "NODE_02 (MPU-6050 Surface / Slope IMU)", n2Msg);
                 }
             } else {
                 // Neither in danger: reset danger latch
@@ -4372,8 +4366,8 @@ HTML_DASHBOARD = r"""<!DOCTYPE html>
             const subS = document.getElementById("sub-strain");
 
             if (selectedNodeId === "NODE_02") {
-                if (subT) subT.textContent = isThisNodeLive ? `Raw: ${rawT.toFixed(2)}° • SW-520D Tilt (Node 2 Live)` : (isSimZero ? `Raw: 0.000° • Standby (0.000)` : `Raw: ${rawT.toFixed(2)}° • Node 2`);
-                if (subV) subV.textContent = isThisNodeLive ? `Raw: ${rawV.toFixed(2)}g • SW-420 Shock (Node 2 Live)` : (isSimZero ? `Raw: 0.000g • Standby (0.000)` : `Raw: ${rawV.toFixed(2)}g • Node 2`);
+                if (subT) subT.textContent = isThisNodeLive ? `Raw: ${rawT.toFixed(2)}° • MPU-6050 Tilt (Node 2 Live)` : (isSimZero ? `Raw: 0.000° • Standby (0.000)` : `Raw: ${rawT.toFixed(2)}° • Node 2`);
+                if (subV) subV.textContent = isThisNodeLive ? `Raw: ${rawV.toFixed(3)}g • MPU-6050 Accel (Node 2 Live)` : (isSimZero ? `Raw: 0.000g • Standby (0.000)` : `Raw: ${rawV.toFixed(2)}g • Node 2`);
                 if (subS) subS.textContent = `0.000 mm • Ultrasonic on Node 1 (Offline)`;
             } else {
                 if (subT) subT.textContent = isThisNodeLive ? `Raw: ${rawT.toFixed(3)}° • Real Hardware (Node 1)` : (activeSimMode === "manual" ? `Raw: ${rawT.toFixed(2)}° • Manual Input` : (isSimZero ? `Raw: 0.000° • Standby / Node 1 Offline` : `Raw: ${rawT.toFixed(2)}° • Filtered`));

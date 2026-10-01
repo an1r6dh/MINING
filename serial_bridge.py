@@ -48,15 +48,11 @@ def parse_telemetry_line(raw_line):
             tilt = float(j.get("filtered_tilt", 0.0))
             vib = float(j.get("filtered_vibration", 0.0))
             disp = float(j.get("filtered_displacement", 0.0))
-            filter_mode = "KALMAN FILTERED" if n_id == 1 else "DIGITAL OVERRIDE"
+            filter_mode = "KALMAN FILTERED" if n_id == 1 else "MPU6050 SENSOR"
 
             abs_tilt = abs(tilt)
-            if n_id == 2:
-                is_danger = (abs_tilt >= 1.0 or vib >= 0.261 or disp >= 81.0)
-                is_warning = False
-            else:
-                is_danger = (disp >= 81.0 or abs_tilt >= 3.801 or vib >= 0.261)
-                is_warning = (disp >= 41.0 or abs_tilt >= 2.01 or vib >= 0.201)
+            is_danger = (disp >= 81.0 or abs_tilt >= 3.801 or vib >= 0.261)
+            is_warning = (disp >= 41.0 or abs_tilt >= 2.01 or vib >= 0.201)
             status = "DANGER" if is_danger else ("WARNING" if is_warning else "SAFE")
 
             return {
@@ -91,17 +87,15 @@ def parse_telemetry_line(raw_line):
         disp = float(disp_m.group(1)) if disp_m else 0.0
 
         abs_tilt = abs(tilt)
-        if node_id == 2:
-            is_danger = (abs_tilt >= 1.0 or vib >= 0.261 or disp >= 81.0)
-            is_warning = False
-        else:
-            is_danger = (disp >= 81.0 or abs_tilt >= 3.801 or vib >= 0.261)
-            is_warning = (disp >= 41.0 or abs_tilt >= 2.01 or vib >= 0.201)
+        is_danger = (disp >= 81.0 or abs_tilt >= 3.801 or vib >= 0.261)
+        is_warning = (disp >= 41.0 or abs_tilt >= 2.01 or vib >= 0.201)
         status = "DANGER" if is_danger else ("WARNING" if is_warning else "SAFE")
 
         filter_type = "HARDWARE SENSOR"
         if "KALMAN" in raw_upper:
             filter_type = "KALMAN FILTERED"
+        elif "MPU6050" in raw_upper:
+            filter_type = "MPU6050 SENSOR"
         elif "OVERRIDE" in raw_upper or "DIGITAL" in raw_upper:
             filter_type = "DIGITAL OVERRIDE"
         elif "SLOT 1" in raw_upper:

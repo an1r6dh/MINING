@@ -1,52 +1,27 @@
 /**
  * ====================================================================================================
  * PROJECT: INTRINSICALLY SAFE REAL-TIME MINE SUBSIDENCE MONITORING (SIH 26025)
- * FIRMWARE: Sensor Field Node 2 (sensor_node_esp32wroom_4.ino)
+ * FIRMWARE: Sensor Field Node 2 (sensor_node_esp32wroom_5.ino)
  * TARGET: ESP-WROOM-32 Development Board (Arduino IDE Compilable)
  * ====================================================================================================
  * 
- * AUDIT CORRECTIONS & CENTRALIZED ARCHITECTURE IMPLEMENTED:
- * 1. Pure Digital Sensor Streamer (Centralized Hub Alarm Architecture):
- *    - Functions purely as a digital sensor acquisition and TDMA transmission pipe.
- *    - Zero local threshold evaluations, condition checking, alarm flags, or alarm routines.
- *    - All safety limit evaluations and alarm dispatches are strictly centralized on Central Hub.
- * 2. Hardware Pin Reassignment (CRITICAL):
- *    - Reassigned PIN_DIGITAL_VIBRATION from GPIO 5 to GPIO 16.
- *    - GPIO 5 is an ESP32 hardware strapping pin (MTDI); connecting an external sensor to GPIO 5
- *      risks bootloader/UART strapping failures upon power-up or reset. GPIO 16 is completely safe.
- * 3. Hardware ISR for Instantaneous Vibration Pulse Capture (CRITICAL):
- *    - Replaced polling in loop() with a dedicated hardware interrupt (FALLING edge).
- *    - Captures transient sub-millisecond mechanical shock pulses (10–500 µs) instantly, even during
- *      transmit microsecond delays.
- *    - In transmitTelemetry(), streams raw payload.vibration = currentVib ? 1.0f : 0.0f; and resets
- *      vibrationLatched = false atomically post-transmission.
- * 4. Explicit RF Wi-Fi Channel Lock:
- *    - Included <esp_wifi.h>.
- *    - esp_wifi_set_channel(ESPNOW_WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE); locks RF hardware to Ch 1.
- * 5. Pure Raw Digital Tilt Telemetry:
- *    - Sampled on GPIO 4 with internal pull-up (INPUT_PULLUP).
- *    - Streams raw digital boolean state (1.0f = triggered, 0.0f = normal) without assuming Hub limits.
- * 6. Strict Slot Window Upper-Bound Guard:
- *    - Node 2 transmits strictly within Slot 2 (160ms to 240ms) on every TDMA superframe.
+ * SENSOR HARDWARE FOR NODE 2:
+ * - MPU-6050 6-DOF IMU (I2C: SDA=GPIO 21, SCL=GPIO 22)
+ *   - Live Tilt Angle: Continuous degrees from complementary filter
+ *   - Live Dynamic Vibration: Dynamic acceleration magnitude (|total_g - 1.0g|)
+ *   - Displacement: Fixed 0.0 mm (Ultrasonic sensor is physically wired to Node 1)
+ * - Auto-Fallback: Digital Tilt (GPIO 4) & Shock (GPIO 16) if MPU6050 is not attached
+ * - TDMA Slot: Slot 2 (160ms to 240ms)
+ * - Direct USB Telemetry: Autonomous 500ms broadcast if plugged directly into laptop without Hub
  * ====================================================================================================
  */
-
-// ====================================================================================================
-// IMPORTANT ARDUINO IDE COMPILATION NOTICE:
-// In the Arduino IDE build system, ALL .ino files residing inside the same folder (sensor_node_esp32wroom)
-// are automatically concatenated into a single compilation unit.
-// Because both sensor_node_esp32wroom.ino and sensor_node_esp32wroom_4.ino contain setup(), loop(), and
-// the same global variables/structs, compiling both simultaneously results in:
-// "error: redefinition of 'uint8_t hubBroadcastAddress []' / 'void setup()' / 'void loop()'"
-//
-// The ACTIVE, PRIMARY sketch for this node is: sensor_node_esp32wroom.ino
-// This backup copy is gated out with #if 0 below to eliminate duplicate symbol conflicts in Arduino IDE.
-// ====================================================================================================
 
 #include <Arduino.h>
 #include <esp_now.h>
 #include <WiFi.h>
 #include <esp_wifi.h> // Explicit Wi-Fi Hardware Channel Configuration
+#include <Wire.h>
+#include <MPU6050_tockn.h>
 
 /* ====================================================================================================
  * 1. NODE CONFIGURATION & HARDWARE PIN ASSIGNMENTS
@@ -54,12 +29,16 @@
 #define NODE_ID                 2    // NODE 2 (Assigned Slot 2: 160ms to 240ms)
 #define ESPNOW_WIFI_CHANNEL     1    // Must strictly match Central Hub channel (Locked)
 
-// Digital Sensor Pins (ESP-WROOM-32)
-#define PIN_DIGITAL_TILT        4    // Digital Tilt Sensor DO Pin (e.g., SW-520D ball switch)
-#define PIN_DIGITAL_VIBRATION   16   // Reassigned from GPIO 5 to GPIO 16 (Avoids ESP32 strapping issue)
+// I2C Pins for MPU-6050 (Standard ESP32)
+#define PIN_I2C_SDA             21   // Standard ESP32 I2C SDA
+#define PIN_I2C_SCL             22   // Standard ESP32 I2C SCL
+
+// Digital Sensor Fallback Pins (ESP-WROOM-32)
+#define PIN_DIGITAL_TILT        4    // Digital Tilt Sensor DO Pin (e.g., SW-520D)
+#define PIN_DIGITAL_VIBRATION   16   // Digital Vibration Sensor (e.g., SW-420)
 #define PIN_STATUS_LED          2    // Onboard Status LED
 
-// Active trigger state (Standard comparator modules output LOW when triggered)
+// Active trigger state for digital comparator modules
 #define SENSOR_TRIGGER_LEVEL    LOW  
 
 // Protocol Message Identifiers
@@ -70,7 +49,7 @@
 uint8_t hubBroadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 /* ====================================================================================================
- * 2. EXACT PACKED BINARY PAYLOAD STRUCTS (MAINTAINED)
+ * 2. EXACT PACKED BINARY PAYLOAD STRUCTS
  * ==================================================================================================== */
 
 // TDMA Synchronization Beacon received from Central Hub
@@ -87,32 +66,38 @@ struct __attribute__((packed)) TDMABeaconPacket {
 struct __attribute__((packed)) SensorPayload {
     uint8_t  msg_type;
     uint8_t  node_id;
-    float    tilt;          // 10.0f on trigger (breaches threshold), 0.0f normal
-    float    vibration;     // 1.0f on trigger (latched), 0.0f normal
-    float    displacement;  // 0.0f fixed
+    float    tilt;          // Tilt angle in degrees (MPU6050 getAngleX)
+    float    vibration;     // Dynamic acceleration in g
+    float    displacement;  // Fixed 0.0 mm on Node 2 (Ultrasonic on Node 1)
 };
 
 /* ====================================================================================================
- * 3. GLOBAL STATE & TIMING VARIABLES
+ * 3. GLOBAL STATE & SENSOR DRIVERS
  * ==================================================================================================== */
+MPU6050 mpu(Wire);
+bool mpuAvailable = false;
+
 volatile bool beaconReceived = false;
 volatile uint32_t syncLocalTimeMs = 0;
 volatile uint16_t currentSlotDurationMs = 80;
 bool slotTransmittedForFrame = false;
 
-// MANDATORY AUDIT FIX: Hardware ISR Latched Flag
-// Captures sub-millisecond mechanical vibration pulses via hardware interrupt
+// Pre-cached sensor telemetry
+float cachedTilt = 0.0f;
+float cachedVib = 0.0f;
+
+// Autonomous direct USB telemetry timer (for standalone USB connection without Hub beacons)
+uint32_t lastDirectUsbTx = 0;
+
+// Digital fallback vibration latch
 volatile bool vibrationLatched = false;
 
-/* ====================================================================================================
- * 4. HARDWARE INTERRUPT SERVICE ROUTINE FOR SW-420 VIBRATION SENSOR
- * ==================================================================================================== */
 void IRAM_ATTR vibrationISR() {
     vibrationLatched = true;
 }
 
 /* ====================================================================================================
- * 5. ESP-NOW RECEPTION CALLBACK (TDMA BEACON SYNCHRONIZATION)
+ * 4. ESP-NOW RECEPTION CALLBACK (TDMA BEACON SYNCHRONIZATION)
  * ==================================================================================================== */
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
 void OnDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *incomingData, int len) {
@@ -126,46 +111,33 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
             syncLocalTimeMs = millis();
             currentSlotDurationMs = beacon.slot_duration_ms;
             beaconReceived = true;
-            slotTransmittedForFrame = false; // Reset transmission lock for new TDMA frame
+            slotTransmittedForFrame = false;
         }
     }
 }
 
 /* ====================================================================================================
- * 6. TELEMETRY TRANSMISSION (EXECUTED STRICTLY WITHIN ASSIGNED TDMA SLOT 2)
+ * 5. TELEMETRY TRANSMISSION (EXECUTED STRICTLY WITHIN ASSIGNED TDMA SLOT 2)
  * ==================================================================================================== */
 void transmitTelemetry() {
     SensorPayload payload;
     payload.msg_type = PKT_TYPE_TELEMETRY;
     payload.node_id = NODE_ID;
-
-    // Digital Sensor Read Verification
-    int tiltState = digitalRead(PIN_DIGITAL_TILT);
-    if (tiltState != HIGH && tiltState != LOW) {
-        Serial.println("[SENSOR FAULT] Node 2: Digital sensor read error. Skipping parameter.");
-        payload.tilt = -999.0f;
-    } else {
-        payload.tilt = (tiltState == SENSOR_TRIGGER_LEVEL) ? 1.0f : 0.0f;
-    }
-
-    // Map Hardware ISR Vibration Latch: Atomically capture and clear latch for this superframe
-    // vibration: 1.0f when vibration pulse latched, 0.0f when calm
-    noInterrupts();
-    bool currentVib = vibrationLatched;
-    vibrationLatched = false;
-    interrupts();
-
-    payload.vibration = currentVib ? 1.0f : 0.0f;
-
-    // Displacement fixed to 0.0f on Node 2 (pure digital tripwire node)
-    payload.displacement = 0.0f;
+    payload.tilt = cachedTilt;
+    payload.vibration = cachedVib;
+    payload.displacement = 0.0f; // Displacement is on Node 1 (Offline)
 
     esp_err_t result = esp_now_send(hubBroadcastAddress, (uint8_t *)&payload, sizeof(payload));
     if (result == ESP_OK) {
-        Serial.printf("[NODE %d TX SLOT 2] Digital Telemetry: Tilt=%03.1f (%s) | Vib=%03.1f (%s) | Disp=0.0mm\n",
-                      NODE_ID,
-                      payload.tilt, (payload.tilt > 0.0f ? "TILT TRIGGERED" : "UPRIGHT"),
-                      payload.vibration, (payload.vibration > 0.0f ? "LATCHED VIB" : "CALM"));
+        if (mpuAvailable) {
+            Serial.printf("[NODE %d TX SLOT 2] MPU6050 Telemetry: Tilt=%+05.2f deg | Vib=%04.2f g | Disp=0.0mm\n",
+                          NODE_ID, payload.tilt, payload.vibration);
+        } else {
+            Serial.printf("[NODE %d TX SLOT 2] Digital Telemetry: Tilt=%03.1f (%s) | Vib=%03.1f (%s) | Disp=0.0mm\n",
+                          NODE_ID,
+                          payload.tilt, (payload.tilt > 0.0f ? "TILT TRIGGERED" : "UPRIGHT"),
+                          payload.vibration, (payload.vibration > 0.0f ? "LATCHED VIB" : "CALM"));
+        }
 
         digitalWrite(PIN_STATUS_LED, HIGH);
         delayMicroseconds(5000);
@@ -176,26 +148,46 @@ void transmitTelemetry() {
 }
 
 /* ====================================================================================================
- * 7. SETUP
+ * 6. SETUP
  * ==================================================================================================== */
 void setup() {
     Serial.begin(115200);
     delay(500);
-    Serial.printf("\n[NODE %d] Initializing Digital Sensor Node (sensor_node_esp32wroom_4)...\n", NODE_ID);
+    Serial.printf("\n[NODE %d] Initializing Sensor Field Node (sensor_node_esp32wroom_5)...\n", NODE_ID);
 
     // Initialize Status LED
     pinMode(PIN_STATUS_LED, OUTPUT);
     digitalWrite(PIN_STATUS_LED, LOW);
 
-    // Initialize Digital Tilt and Vibration Sensors with Internal Pull-Ups
-    pinMode(PIN_DIGITAL_TILT, INPUT_PULLUP);
-    pinMode(PIN_DIGITAL_VIBRATION, INPUT_PULLUP);
-    Serial.println("[SENSOR] Digital Tilt (GPIO 4) & Vibration (GPIO 16) configured with INPUT_PULLUP.");
-
-    // MANDATORY AUDIT FIX: Attach hardware interrupt on GPIO 16 (FALLING edge)
-    // Guarantees sub-millisecond mechanical shock pulses are never missed by loop delays
-    attachInterrupt(digitalPinToInterrupt(PIN_DIGITAL_VIBRATION), vibrationISR, FALLING);
-    Serial.println("[ISR] Attached vibrationISR on GPIO 16 (FALLING edge).");
+    // 1. Initialize I2C Bus and check for MPU-6050
+    Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
+    Wire.beginTransmission(0x68);
+    byte i2cError = Wire.endTransmission();
+    if (i2cError == 0) {
+        Serial.println("[SENSOR] MPU-6050 detected at I2C address 0x68!");
+        mpu.begin();
+        Serial.println("[SENSOR] Calculating gyro offsets (keep sensor steady)...");
+        mpu.calcGyroOffsets(true);
+        mpuAvailable = true;
+        Serial.println("[SENSOR] MPU-6050 calibration complete.");
+    } else {
+        // Probe alternate I2C address 0x69
+        Wire.beginTransmission(0x69);
+        i2cError = Wire.endTransmission();
+        if (i2cError == 0) {
+            Serial.println("[SENSOR] MPU-6050 detected at I2C address 0x69!");
+            mpu.begin();
+            mpu.calcGyroOffsets(true);
+            mpuAvailable = true;
+            Serial.println("[SENSOR] MPU-6050 calibration complete.");
+        } else {
+            Serial.println("[SENSOR NOTICE] MPU-6050 not responding on I2C. Falling back to Digital Pins (4 & 16)...");
+            mpuAvailable = false;
+            pinMode(PIN_DIGITAL_TILT, INPUT_PULLUP);
+            pinMode(PIN_DIGITAL_VIBRATION, INPUT_PULLUP);
+            attachInterrupt(digitalPinToInterrupt(PIN_DIGITAL_VIBRATION), vibrationISR, FALLING);
+        }
+    }
 
     WiFi.mode(WIFI_STA);
     WiFi.disconnect();
@@ -229,72 +221,77 @@ void setup() {
 }
 
 /* ====================================================================================================
- * 8. MAIN LOOP: STRICT TDMA DISPATCH WITH HARDWARE ISR CAPTURE
+ * 7. MAIN LOOP: CONTINUOUS MPU SENSING & STRICT TDMA DISPATCH
  * ==================================================================================================== */
 void loop() {
     uint32_t now = millis();
 
-    // Beacon Expiry & Serial Protection
+    // 1. Update active sensor readings continuously
+    if (mpuAvailable) {
+        mpu.update();
+        float ax = mpu.getAccX();
+        float ay = mpu.getAccY();
+        float az = mpu.getAccZ();
+        float t_angle = mpu.getAngleX();
+
+        if (isnan(t_angle) || isnan(ax) || isnan(ay) || isnan(az)) {
+            cachedTilt = 0.0f;
+            cachedVib  = 0.0f;
+        } else {
+            cachedTilt = t_angle;
+            float total_g = sqrt(ax * ax + ay * ay + az * az);
+            cachedVib = fabs(total_g - 1.0f);
+        }
+    } else {
+        // Digital fallback reading
+        int tiltState = digitalRead(PIN_DIGITAL_TILT);
+        cachedTilt = (tiltState == SENSOR_TRIGGER_LEVEL) ? 1.0f : 0.0f;
+
+        noInterrupts();
+        bool currentVib = vibrationLatched;
+        vibrationLatched = false;
+        interrupts();
+        cachedVib = currentVib ? 1.0f : 0.0f;
+    }
+
+    // Beacon Expiry & Status LED
     if (beaconReceived && (now - syncLocalTimeMs > 2000)) {
         beaconReceived = false;
     }
 
-    // Node Status LED Logic
     if (!beaconReceived && (now - syncLocalTimeMs > 2000)) {
         uint32_t cycle = now % 400;
         digitalWrite(PIN_STATUS_LED, (cycle < 200) ? HIGH : LOW);
+
+        // Standalone Direct USB Serial Fallback (every 500ms when connected directly to computer USB without Hub beacons)
+        if (now - lastDirectUsbTx >= 500) {
+            lastDirectUsbTx = now;
+            if (mpuAvailable) {
+                Serial.printf("[NODE %d TX SLOT 2] MPU6050 Telemetry: Tilt=%+05.2f deg | Vib=%04.2f g | Disp=0.0mm\n",
+                              NODE_ID, cachedTilt, cachedVib);
+            } else {
+                Serial.printf("[NODE %d TX SLOT 2] Digital Telemetry: Tilt=%04.1f (%s) | Vib=%04.1f (%s) | Disp=0.0mm\n",
+                              NODE_ID, cachedTilt, (cachedTilt > 0.0f ? "TRIGGERED" : "UPRIGHT"),
+                              cachedVib, (cachedVib > 0.0f ? "SHOCK" : "CALM"));
+            }
+        }
     } else if (!beaconReceived) {
         digitalWrite(PIN_STATUS_LED, LOW);
     }
 
-    // Note: SW-420 pulses are now captured by hardware interrupt vibrationISR() instantly.
-    // No polling delay or blocking can cause vibration pulses to be missed!
-
-    // TDMA Slot 2 Transmission Check
+    // 2. TDMA Slot 2 Transmission (160ms to 240ms after Hub Beacon)
     if (beaconReceived && !slotTransmittedForFrame) {
-        // FIX (uint32_t underflow): Re-sample millis() here — syncLocalTimeMs may have been
-        // updated by the ESP-NOW ISR since `now` was captured at the top of loop().
-        // The ternary guard yields 0 (before-window) instead of 4294967295 (past-window)
-        // if an ISR fires between the millis() call and the subtraction.
         uint32_t currentMs = millis();
         uint32_t elapsedSinceBeacon = (currentMs >= syncLocalTimeMs) ? (currentMs - syncLocalTimeMs) : 0;
+        uint32_t slot2Start = 2 * (uint32_t)currentSlotDurationMs; // 160ms
+        uint32_t slot2End   = 3 * (uint32_t)currentSlotDurationMs; // 240ms
 
-        // Slot 0: Hub Beacon & Guard Margin (0 to slotDurationMs)
-        // Slot 1: Node 1 Assigned Window (slotDurationMs to 2 * slotDurationMs)
-        // Slot 2: Node 2 Assigned Window (2 * slotDurationMs to 3 * slotDurationMs)
-        uint32_t slotStartTime = (uint32_t)NODE_ID * currentSlotDurationMs; // 160 ms
-        uint32_t slotEndTime   = slotStartTime + currentSlotDurationMs;     // 240 ms
-
-        // STRICT SLOT WINDOW UPPER-BOUND GUARD:
-        if (elapsedSinceBeacon >= slotStartTime && elapsedSinceBeacon < slotEndTime) {
+        if (elapsedSinceBeacon >= slot2Start && elapsedSinceBeacon < slot2End) {
             transmitTelemetry();
-            slotTransmittedForFrame = true; // Transmit strictly once per frame
-        } 
-        else if (elapsedSinceBeacon >= slotEndTime) {
-            // Missed slot window! Skip to protect adjacent slots from RF collision
             slotTransmittedForFrame = true;
-            if (beaconReceived) {
-                Serial.printf("[TDMA GUARD Node %d] Missed window (+%lums, window %lu-%lums). Skipping frame.\n",
-                              NODE_ID, elapsedSinceBeacon, slotStartTime, slotEndTime);
-            }
+        } else if (elapsedSinceBeacon >= slot2End) {
+            // Guard: Missed window - skip to protect neighboring TDMA slots
+            slotTransmittedForFrame = true;
         }
     }
-
-    // AUTONOMOUS DIRECT USB SERIAL TELEMETRY (When Node 2 is connected directly via USB without Hub beacon)
-    static uint32_t lastDirectUsbTx = 0;
-    if (!beaconReceived && (now - lastDirectUsbTx >= 500)) {
-        lastDirectUsbTx = now;
-        int tiltState = digitalRead(PIN_DIGITAL_TILT);
-        float directTilt = (tiltState == SENSOR_TRIGGER_LEVEL) ? 1.0f : 0.0f;
-        noInterrupts();
-        bool curVib = vibrationLatched;
-        vibrationLatched = false;
-        interrupts();
-        float directVib = curVib ? 1.0f : 0.0f;
-        Serial.printf("[NODE 2 TX SLOT 2] Digital Telemetry: Tilt=%04.1f (%s) | Vib=%04.1f (%s) | Disp=0.0mm\n",
-                      directTilt, (directTilt > 0.0f ? "TILT TRIGGERED" : "UPRIGHT"),
-                      directVib, (directVib > 0.0f ? "LATCHED VIB" : "CALM"));
-    }
 }
-
-
